@@ -1,5 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/src/pdf-worker.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf-worker.js';
+
 
 export async function loadFormattedPdfPages(url) {
   const loadingTask = pdfjsLib.getDocument(url);
