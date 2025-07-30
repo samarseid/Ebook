@@ -7,7 +7,7 @@ import { IoSettingsSharp, IoChevronBack } from 'react-icons/io5';
 
 const Reader = () => {
   const { user } = useTelegram();
-const bookId = 'test.pdf'; // bu kitob nomi
+const bookId = 'https://yourproject.vercel.app/books/test.pdf'; // bu kitob nomi
 
   const [pages, setPages] = useState([]);
   const [currentPage, setCurrentPage] = useState(0);
@@ -62,7 +62,7 @@ useEffect(() => {
   }, [fontSize, fontFamily, background, brightness]);
 useEffect(() => {
   tg.ready();
-  loadFormattedPdfPages('/books/test.pdf')
+loadFormattedPdfPages('books/test.pdf')
     .then((loadedPages) => {
       console.log('[DEBUG] PDF loaded, page count:', loadedPages.length);
       setPages(loadedPages);

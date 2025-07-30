@@ -1,7 +1,8 @@
 import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/src/pdf-worker.js';
 
-export async function loadFormattedPdfPages(url) {
+export async function loadFormattedPdfPages(relativeUrl) {
+  const url = import.meta.env.BASE_URL + relativeUrl; // ✔️ to‘liq path
   const loadingTask = pdfjsLib.getDocument(url);
   const pdf = await loadingTask.promise;
 
@@ -15,11 +16,8 @@ export async function loadFormattedPdfPages(url) {
 
     for (const item of content.items) {
       const str = item.str.trim();
-
-      // ➤ Skip bo‘sh string
       if (!str) continue;
 
-      // ➤ Yangi qator aniqlash: pozitsiya (transform[5]) o‘zgargan bo‘lsa
       const y = item.transform[5];
       if (prevY !== null && Math.abs(y - prevY) > 5) {
         fullText += '\n';
@@ -28,19 +26,17 @@ export async function loadFormattedPdfPages(url) {
       fullText += str + ' ';
       prevY = y;
 
-      // ➤ Dialog belgisi alohida yangi qatorga o‘tkazilishi uchun
       if (str.endsWith('.') || str.endsWith(':') || str.endsWith('?') || str.endsWith('!')) {
         fullText += '\n';
       }
     }
 
-    fullText += '\n\n'; // Sahifani tugatish
+    fullText += '\n\n';
   }
 
-  // ➤ Sahifalarga ajratish: har 200 so‘zda bitta sahifa
   const words = fullText
     .replace(/\s{2,}/g, ' ')
-    .replace(/\n\s*/g, '\n') // Yangi qatordan keyingi bo‘sh joylarni olib tashlash
+    .replace(/\n\s*/g, '\n')
     .trim()
     .split(' ');
 
