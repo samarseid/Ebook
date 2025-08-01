@@ -7,6 +7,7 @@ import { IoSettingsSharp, IoChevronBack } from 'react-icons/io5';
 
 const Reader = () => {
   const { user } = useTelegram();
+  
 const bookId = 'test.pdf'; // bu kitob nomi
 
   const [pages, setPages] = useState([]);
@@ -156,8 +157,8 @@ if (loading) {
       {/* HEADER */}
 {currentPage === 0 ? (
   <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-    <h1 style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: 4, fontFamily }}>Culpa Mía</h1>
-    <h2 style={{ fontSize: '18px', color: '#666', fontFamily }}>Chapter 1 — Noah</h2>
+    <h1 style={{ fontSize: '32px', fontWeight: 'bold', marginBottom: 4, fontFamily }}>Икки Эшик Ораси</h1>
+    <h2 style={{ fontSize: '18px', color: '#666', fontFamily }}>1-БОБ Совуқ хабар</h2>
   </div>
 ) : (
   <div style={{
@@ -168,7 +169,7 @@ if (loading) {
     color: '#666',
     fontFamily
   }}>
-    Chapter {Math.floor(currentPage / 10) + 1}
+   {Math.floor(currentPage / 10) + 1} -БОБ
   </div>
 )}
 
