@@ -253,7 +253,7 @@ const ReaderEpub = () => {
           whiteSpace: 'pre-wrap',
           lineHeight: '1.8',
           fontSize: `${fontSize}px`,
-          textAlign: 'justify',
+
           fontFamily: fontFamily,
           marginBottom: '3rem',
           overflowX: 'hidden',
