@@ -20,4 +20,4 @@ bot.start((ctx) => {
   });
 });
 
-fbot.launch();
+bot.launch();

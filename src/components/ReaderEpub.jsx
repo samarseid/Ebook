@@ -1,5 +1,5 @@
 // ReaderEpub.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { loadFormattedEpubPages } from '../utils/epubUtils';
 import { useTelegram, tg } from '../hooks/useTelegram';
@@ -9,46 +9,22 @@ import { IoSettingsSharp, IoChevronBack } from 'react-icons/io5';
 const ReaderEpub = () => {
   const { user } = useTelegram();
   const navigate = useNavigate();
+
   const bookId = 'test2.epub';
 
   const [pages, setPages] = useState([]);
-  const [currentPage, setCurrentPage] = useState(null);
+  const [currentPage, setCurrentPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [showJumpModal, setShowJumpModal] = useState(false);
   const [jumpInput, setJumpInput] = useState('');
 
-  const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('fontSize')) || 16);
+  const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('fontSize') || '16', 10));
   const [fontFamily, setFontFamily] = useState(() => localStorage.getItem('fontFamily') || 'Times New Roman');
   const [background, setBackground] = useState(() => localStorage.getItem('background') || '#ffffff');
-  const [brightness, setBrightness] = useState(() => parseInt(localStorage.getItem('brightness')) || 100);
+  const [brightness, setBrightness] = useState(() => parseInt(localStorage.getItem('brightness') || '100', 10));
 
-  useEffect(() => {
-    tg.ready();
-    loadFormattedEpubPages(`/books/${bookId}`).then((loadedPages) => {
-      setPages(loadedPages);
-      const savedPage = parseInt(localStorage.getItem(`lastPage-${bookId}`));
-      if (!isNaN(savedPage) && savedPage >= 0 && savedPage < loadedPages.length) {
-        setCurrentPage(savedPage);
-      } else {
-        setCurrentPage(0);
-      }
-    }).finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (currentPage !== null) {
-      localStorage.setItem(`lastPage-${bookId}`, currentPage.toString());
-    }
-  }, [currentPage]);
-
-  useEffect(() => {
-    localStorage.setItem('fontSize', fontSize.toString());
-    localStorage.setItem('fontFamily', fontFamily);
-    localStorage.setItem('background', background);
-    localStorage.setItem('brightness', brightness.toString());
-  }, [fontSize, fontFamily, background, brightness]);
-
+  // Settings ochilganda pastga siljitish
   useEffect(() => {
     if (showSettings) {
       setTimeout(() => {
@@ -57,16 +33,174 @@ const ReaderEpub = () => {
     }
   }, [showSettings]);
 
-  const goHome = () => navigate('/');
-  const goNext = () => currentPage < pages.length - 1 && setCurrentPage(currentPage + 1);
-  const goPrev = () => currentPage > 0 && setCurrentPage(currentPage - 1);
+  // Initial sozlamalarni yuklash
+  useEffect(() => {
+    const savedFontSize = localStorage.getItem('fontSize');
+    const savedFont = localStorage.getItem('fontFamily');
+    const savedBg = localStorage.getItem('background');
+    const savedBrightness = localStorage.getItem('brightness');
 
-  if (loading || currentPage === null) {
+    if (savedFontSize) setFontSize(parseInt(savedFontSize, 10));
+    if (savedFont) setFontFamily(savedFont);
+    if (savedBg) setBackground(savedBg);
+    if (savedBrightness) setBrightness(parseInt(savedBrightness, 10));
+  }, []);
+
+  // Sozlamalarni saqlash
+  useEffect(() => {
+    localStorage.setItem('fontSize', String(fontSize));
+    localStorage.setItem('fontFamily', fontFamily);
+    localStorage.setItem('background', background);
+    localStorage.setItem('brightness', String(brightness));
+  }, [fontSize, fontFamily, background, brightness]);
+
+  // EPUB yuklash
+  useEffect(() => {
+    tg.ready();
+    loadFormattedEpubPages(`/books/${bookId}`)
+      .then((loadedPages) => {
+        setPages(loadedPages);
+        const saved = localStorage.getItem(`lastPage-${bookId}`);
+        const page = saved ? parseInt(saved, 10) : 0;
+        if (!isNaN(page) && page >= 0 && page < loadedPages.length) {
+          setCurrentPage(page);
+        } else {
+          setCurrentPage(0);
+        }
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Sahifani eslab qolish
+  useEffect(() => {
+    if (pages.length > 0) {
+      localStorage.setItem(`lastPage-${bookId}`, String(currentPage));
+    }
+  }, [currentPage, pages]);
+
+  // X-overflow ni bloklash
+  useEffect(() => {
+    document.body.style.overflowX = 'hidden';
+    document.documentElement.style.overflowX = 'hidden';
+    return () => {
+      document.body.style.overflowX = '';
+      document.documentElement.style.overflowX = '';
+    };
+  }, []);
+
+  const goHome = () => navigate('/');
+
+  // ------------ Swipe / Tap navigatsiya (Reader bilan bir xil) ------------
+  const goNext = useCallback(() => {
+    setCurrentPage((p) => (p < pages.length - 1 ? p + 1 : p));
+  }, [pages.length]);
+
+  const goPrev = useCallback(() => {
+    setCurrentPage((p) => (p > 0 ? p - 1 : p));
+  }, []);
+
+  const threshold = 50;          // minimal gorizontal siljish pikseli
+  const tapZonePercent = 0.25;   // chap/o‘ng chekka zonasi (25%)
+
+  const startX = useRef(0);
+  const startY = useRef(0);
+  const moved = useRef(false);
+
+  const guardBlocked = useCallback(() => (showSettings || showJumpModal), [showSettings, showJumpModal]);
+
+  const onTouchStart = useCallback((e) => {
+    if (guardBlocked()) return;
+    const t = e.touches?.[0];
+    if (!t) return;
+    startX.current = t.clientX;
+    startY.current = t.clientY;
+    moved.current = false;
+  }, [guardBlocked]);
+
+  const onTouchMove = useCallback((e) => {
+    if (guardBlocked()) return;
+    const t = e.touches?.[0];
+    if (!t) return;
+    const dx = t.clientX - startX.current;
+    const dy = t.clientY - startY.current;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) moved.current = true;
+  }, [guardBlocked]);
+
+  const onTouchEnd = useCallback((e) => {
+    if (guardBlocked()) return;
+    const c = e.changedTouches?.[0];
+    if (!c) return;
+    const dx = c.clientX - startX.current;
+    const dy = c.clientY - startY.current;
+
+    // swipe
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) >= threshold) {
+      if (dx < 0) goNext(); else goPrev();
+      return;
+    }
+
+    // tap (chekka zonalar)
+    if (!moved.current) {
+      const w = window.innerWidth || document.documentElement.clientWidth;
+      if (c.clientX <= w * tapZonePercent) goPrev();
+      else if (c.clientX >= w * (1 - tapZonePercent)) goNext();
+    }
+  }, [guardBlocked, goNext, goPrev]);
+
+  const downX = useRef(0), downY = useRef(0);
+  const onPointerDown = useCallback((e) => {
+    if (guardBlocked()) return;
+    downX.current = e.clientX;
+    downY.current = e.clientY;
+    moved.current = false;
+  }, [guardBlocked]);
+
+  const onPointerMove = useCallback((e) => {
+    if (guardBlocked()) return;
+    const dx = e.clientX - downX.current;
+    const dy = e.clientY - downY.current;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) moved.current = true;
+  }, [guardBlocked]);
+
+  const onPointerUp = useCallback((e) => {
+    if (guardBlocked()) return;
+    const dx = e.clientX - downX.current;
+    const dy = e.clientY - downY.current;
+
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) >= threshold) {
+      if (dx < 0) goNext(); else goPrev();
+      return;
+    }
+
+    if (!moved.current) {
+      const w = window.innerWidth || document.documentElement.clientWidth;
+      if (e.clientX <= w * tapZonePercent) goPrev();
+      else if (e.clientX >= w * (1 - tapZonePercent)) goNext();
+    }
+  }, [guardBlocked, goNext, goPrev]);
+
+  const onKeyDown = useCallback((e) => {
+    if (guardBlocked()) return;
+    if (e.key === 'ArrowRight') goNext();
+    if (e.key === 'ArrowLeft') goPrev();
+  }, [guardBlocked, goNext, goPrev]);
+  // ------------------------------------------------------------------------
+
+  if (loading) {
     return (
-      <div style={{
-        position: 'fixed', inset: 0, backgroundColor: '#ffffff', display: 'flex',
-        justifyContent: 'center', alignItems: 'center', fontSize: '18px', color: '#444', zIndex: 9999,
-      }}>
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: '#ffffff',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          fontSize: '18px',
+          color: '#444',
+          zIndex: 9999,
+        }}
+      >
         Yuklanmoqda...
       </div>
     );
@@ -74,6 +208,14 @@ const ReaderEpub = () => {
 
   return (
     <div
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onKeyDown={onKeyDown}
+      tabIndex={0}
       style={{
         backgroundColor: background,
         minHeight: '100vh',
@@ -81,15 +223,18 @@ const ReaderEpub = () => {
         fontFamily,
         color: background === '#1e1e1e' ? '#f0f0f0' : '#222',
         filter: `brightness(${brightness}%)`,
+        position: 'relative',
         overflowX: 'hidden',
-        position: 'relative'
+        touchAction: 'pan-y',
       }}
     >
+      {/* TOP BAR */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <IoChevronBack size={24} onClick={goHome} style={{ cursor: 'pointer' }} />
         <IoSettingsSharp size={24} onClick={() => setShowSettings(true)} style={{ cursor: 'pointer' }} />
       </div>
 
+      {/* HEADER */}
       {currentPage === 0 ? (
         <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
           <h1 style={{ fontSize: '32px', fontWeight: 'bold' }}>Yaxshiyam Sen Borsan</h1>
@@ -101,43 +246,82 @@ const ReaderEpub = () => {
         </div>
       )}
 
-      <pre style={{ whiteSpace: 'pre-wrap', lineHeight: '1.8', fontSize, fontFamily }}>
+      {/* CONTENT */}
+      <pre
+        className="reader-text"
+        style={{
+          whiteSpace: 'pre-wrap',
+          lineHeight: '1.8',
+          fontSize: `${fontSize}px`,
+          textAlign: 'justify',
+          fontFamily: fontFamily,
+          marginBottom: '3rem',
+          overflowX: 'hidden',
+          maxWidth: '100%',
+        }}
+      >
         {pages[currentPage]}
       </pre>
 
+      {/* PAGE INDICATOR (tap to jump) */}
       <div
-  style={{
-    position: 'fixed',
-    bottom: 20,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    background: background === '#1e1e1e' ? '#333' : '#f2f2f2',
-    color: background === '#1e1e1e' ? '#fff' : '#222',
-    padding: '6px 12px',
-    borderRadius: '12px',
-    cursor: 'pointer',
-    fontSize: '14px',
-    zIndex: 500
-  }}
-  onClick={() => setShowJumpModal(true)}
->
-  {currentPage + 1} / {pages.length}
-</div>
-
-
-      <div style={{ position: 'fixed', bottom: 16, left: 0, right: 0, display: 'flex', justifyContent: 'space-between', padding: '0 1.5rem', backgroundColor: background }}>
-        <button onClick={goPrev} disabled={currentPage === 0}>⬅ Oldingi</button>
-        <button onClick={goNext} disabled={currentPage === pages.length - 1}>Keyingi ➡</button>
+        style={{
+          position: 'fixed',
+          bottom: 20,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          textAlign: 'center',
+          zIndex: 500,
+          fontSize: '14px',
+          color: '#666',
+          cursor: 'pointer',
+          backgroundColor: '#f2f2f2',
+          padding: '6px 12px',
+          borderRadius: '12px',
+          maxWidth: '160px',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+        }}
+        onClick={() => setShowJumpModal(true)}
+      >
+        {currentPage + 1} / {pages.length}
       </div>
 
+      {/* JUMP MODAL */}
       {showJumpModal && (
         <div
           onClick={() => setShowJumpModal(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+          }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{ background: '#fff', paddingBottom: '14px', borderRadius: '16px', width: '100%', maxWidth: '340px', boxShadow: '0 8px 24px rgba(0,0,0,0.2)', textAlign: 'center' }}
+            onTouchStart={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
+            onTouchEnd={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerMove={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            style={{
+              background: '#fff',
+              paddingBottom: '14px',
+              borderRadius: '16px',
+              width: '100%',
+              maxWidth: '340px',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.2)',
+              textAlign: 'center',
+              transition: 'all 0.3s ease',
+            }}
           >
             <h3 style={{ marginBottom: '1rem', fontSize: '18px', fontWeight: '600', color: '#222' }}>
               Sahifa: {currentPage + 1} / {pages.length}
@@ -150,7 +334,7 @@ const ReaderEpub = () => {
               onChange={(e) => setJumpInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
-                  const page = parseInt(jumpInput);
+                  const page = parseInt(jumpInput, 10);
                   if (!isNaN(page) && page >= 1 && page <= pages.length) {
                     setCurrentPage(page - 1);
                     setShowJumpModal(false);
@@ -159,7 +343,15 @@ const ReaderEpub = () => {
                 }
               }}
               style={{
-                width: '200px', padding: '10px 12px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '15px', backgroundColor: '#f9f9f9', color: '#333', outline: 'none'
+                width: '200px',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                border: '1px solid #ddd',
+                fontSize: '15px',
+                backgroundColor: '#f9f9f9',
+                color: '#333',
+                outline: 'none',
+                transition: 'all 0.2s ease',
               }}
             />
 
@@ -168,20 +360,43 @@ const ReaderEpub = () => {
         </div>
       )}
 
+      {/* SETTINGS MODAL */}
       {showSettings && (
         <>
           <div
+            className="settings-overlay"
             onClick={() => setShowSettings(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.3)', zIndex: 999 }}
-          ></div>
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.3)',
+              zIndex: 999,
+            }}
+          />
           <div
             className="settings-panel"
-            style={{
-              position: 'fixed', bottom: 0, left: 0, right: 0,
-              background: '#fff', borderTopLeftRadius: '24px', borderTopRightRadius: '24px',
-              boxShadow: '0 -4px 16px rgba(0,0,0,0.1)', padding: '20px', zIndex: 1000, maxHeight: '90vh', overflowY: 'auto'
-            }}
             onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
+            onTouchEnd={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerMove={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              background: '#fff',
+              borderTopLeftRadius: '24px',
+              borderTopRightRadius: '24px',
+              boxShadow: '0 -4px 16px rgba(0,0,0,0.1)',
+              padding: '20px',
+              zIndex: 1000,
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              transition: 'transform 0.3s ease',
+            }}
           >
             <SettingsPanel
               fontSize={fontSize}
