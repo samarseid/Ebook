@@ -4,33 +4,44 @@ export async function loadFormattedEpubPages(url) {
   const book = ePub(url);
   await book.ready;
 
-  const spineItems = book.spine.spineItems; // spine.getSections() o‘rniga mana shu
+  const spineItems = book.spine.spineItems;
   let fullText = '';
 
   for (let i = 0; i < spineItems.length; i++) {
     const item = spineItems[i];
     try {
-      const text = await item.load(book.load.bind(book)).then((res) => {
+      const text = await item.load(book.load.bind(book)).then(() => {
         return item.render().then(() => {
-          return item.document.body.textContent;
+          let rawText = item.document.body.innerText || item.document.body.textContent || '';
+
+          // HTML entity va keraksiz bo‘sh joylarni tozalash
+          rawText = rawText
+            .replace(/&nbsp;/g, ' ')        // HTML no-break space → oddiy space
+            .replace(/\u00A0/g, ' ')        // Unicode no-break space → oddiy space
+            .replace(/\s+/g, ' ')           // Ketma-ket bo‘sh joylarni 1 space
+            .replace(/\n\s*/g, '\n')        // Keraksiz bo‘sh qatordan keyin bo‘sh joylarni olib tashlash
+            .replace(/\r/g, '')             // Keraksiz \r belgilarini olib tashlash
+            .replace(/[ ]{2,}/g, ' ');      // 2 yoki undan ortiq bo‘sh joy → 1 space
+
+          return rawText.trim();
         });
       });
 
-      fullText += text + '\n\n';
+      fullText += text + ' ';
     } catch (err) {
       console.warn(`[EPUB] Bo‘lim ${i + 1} yuklanmadi:`, err);
       continue;
     } finally {
-      item.unload(); // resursni bo‘shatish
+      item.unload();
     }
   }
 
-  // Tozalash va 200ta so‘zdan iborat sahifalarga bo‘lish
+  // Yakuniy tozalash
   const cleaned = fullText
-    .replace(/\s{2,}/g, ' ')
-    .replace(/\n\s*/g, '\n')
+    .replace(/\s+/g, ' ')
     .trim();
 
+  // 200 so‘zdan iborat sahifalarga bo‘lish
   const words = cleaned.split(/\s+/);
   const pages = [];
 
