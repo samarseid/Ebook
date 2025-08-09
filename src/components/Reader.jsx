@@ -46,6 +46,26 @@ const Reader = () => {
       return new Set();
     }
   });
+
+  // state-lardan keyin
+const openReadList = () => {
+  // mobil klaviaturani yopib yuboramiz (bo‘lsa)
+  if (document.activeElement?.blur) document.activeElement.blur();
+
+  setShowReadList(true);
+
+  // sheet mount bo‘lgach, pastga silliq tushamiz
+  requestAnimationFrame(() => {
+    // ba’zi brauzerlarda yana bitta frame kerak bo‘ladi:
+    requestAnimationFrame(() => {
+      window.scrollTo({
+        top: document.documentElement.scrollHeight,
+        behavior: 'smooth',
+      });
+    });
+  });
+};
+
   const totalPages = pages.length;
   const progress = totalPages ? Math.floor((readPages.size / totalPages) * 100) : 0;
   const isCurrentRead = readPages.has(currentPage);
@@ -58,6 +78,19 @@ const Reader = () => {
       return next;
     });
   };
+// HEX rang yorug' (light) yoki qorong'i (dark) ekanini aniqlash
+const isColorDark = (hex) => {
+  try {
+    if (!hex) return false;
+    let c = hex.replace('#','');
+    if (c.length === 3) c = c.split('').map(ch => ch + ch).join('');
+    const r = parseInt(c.slice(0,2),16);
+    const g = parseInt(c.slice(2,4),16);
+    const b = parseInt(c.slice(4,6),16);
+    const brightness = (r*299 + g*587 + b*114) / 1000; // perceptual
+    return brightness < 140; // threshold
+  } catch { return false; }
+};
 
   const clearAllRead = () => {
     if (confirm('Barcha o‘qilgan belgilari o‘chirilsinmi?')) {
@@ -311,14 +344,14 @@ const Reader = () => {
     );
   }
 
-  const isDark = background === '#1e1e1e';
+  const isDark = isColorDark(background);
   const textMuted = isDark ? '#c9c9c9' : '#666';
   const cardBg = isDark ? '#121212' : '#fff';
   const surface = isDark ? '#2a2a2a' : '#ffffff';
   const border = '#e5e7eb';
   const progressTrack = isDark ? '#333' : '#e5e7eb';
   const progressBar = isDark ? '#f5f5f5' : '#1c1c1c';
-
+const iconColor = isDark ? '#f5f5f5' : '#111';
   const readArr = Array.from(readPages);
 
   return (
@@ -355,13 +388,13 @@ const Reader = () => {
           title="Orqaga"
           style={{ background: 'transparent', border: 'none', padding: 4, cursor: 'pointer' }}
         >
-          <IoChevronBack size={24} />
+          <IoChevronBack size={24} color={iconColor} />
         </button>
 
         {/* % badge (bosilsa o‘qilganlar ro‘yxati) */}
         <button
           data-block-nav="true"
-          onClick={(e) => { e.stopPropagation(); setShowReadList(true); }}
+          onClick={(e) => { e.stopPropagation(); openReadList(); }}
           title="O‘qilgan sahifalar ro‘yxati"
           style={{
             fontSize: 12,
@@ -373,7 +406,8 @@ const Reader = () => {
             minWidth: 44,
             textAlign: 'center',
             userSelect: 'none',
-            cursor: 'pointer'
+             cursor: 'pointer',
+            marginLeft: '33px'
           }}
         >
           {progress}%
@@ -386,7 +420,7 @@ const Reader = () => {
             title="Qidiruv"
             style={{ background: 'transparent', border: 'none', padding: 4, cursor: 'pointer' }}
           >
-            <IoSearchSharp size={22} />
+            <IoSearchSharp size={22} color={iconColor} />
           </button>
 
           <button
@@ -395,7 +429,7 @@ const Reader = () => {
             title="Sozlamalar"
             style={{ background: 'transparent', border: 'none', padding: 4, cursor: 'pointer' }}
           >
-            <IoSettingsSharp size={24} />
+            <IoSettingsSharp size={24} color={iconColor}  />
           </button>
         </div>
       </div>
@@ -573,8 +607,8 @@ const Reader = () => {
         title={isCurrentRead ? 'Belgilashni bekor qilish' : 'Ushbu sahifani o‘qildi deb belgilash'}
         style={{
           position: 'fixed',
-          right: 16,
-          bottom: 76,
+          right: 10,
+          bottom: 18,
           zIndex: 600,
           padding: '10px 12px',
           borderRadius: 999,
