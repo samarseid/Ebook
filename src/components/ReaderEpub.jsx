@@ -647,7 +647,7 @@ const ReaderEpub = () => {
                 data-block-nav="true"
                 onClick={(e) => { e.stopPropagation(); clearAllRead(); }}
                 style={{
-                  background: '#fff',
+                  background: '#561818ff',
                   border: '1px solid #eee',
                   borderRadius: 10,
                   padding: '6px 10px',
