@@ -179,7 +179,6 @@ if (loading) {
     whiteSpace: 'pre-wrap',
     lineHeight: '1.8',
     fontSize: `${fontSize}px`,
-    textAlign: 'justify',
     fontFamily: fontFamily, // ✅ shu yerda to‘g‘ri ishlayapti
     marginBottom: '3rem',
     overflowX: 'hidden',

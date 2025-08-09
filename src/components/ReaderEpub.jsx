@@ -101,7 +101,7 @@ const ReaderEpub = () => {
         </div>
       )}
 
-      <pre style={{ whiteSpace: 'pre-wrap', lineHeight: '1.8', fontSize, textAlign: 'justify', fontFamily }}>
+      <pre style={{ whiteSpace: 'pre-wrap', lineHeight: '1.8', fontSize, fontFamily }}>
         {pages[currentPage]}
       </pre>
 

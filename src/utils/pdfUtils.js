@@ -40,7 +40,7 @@ export async function loadFormattedPdfPages(url) {
   }
 
   // ➤ Sahifalarga ajratish: har 200 so‘zda bitta sahifa
-  const words = fullTextmd
+  const words = fullText
     .replace(/\s{2,}/g, ' ')
     .replace(/\n\s*/g, '\n') // Yangi qatordan keyingi bo‘sh joylarni olib tashlash
     .trim()

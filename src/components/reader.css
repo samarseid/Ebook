@@ -1,0 +1,19 @@
+/* EPUB/PDF matn bloki uchun umumiy qoidalar */
+.reader-text {
+  white-space: pre-wrap;         /* matn bo'linishini saqlaymiz */
+  word-break: break-word;        /* so'zlar chekkada bo'linsa bo'linadi */
+  overflow-wrap: anywhere;       /* uzun so'zlarda ham qatordan oshmasin */
+  hyphens: auto;                 /* avtomatik bo'g'inlash (brauzer qo'llasa) */
+  letter-spacing: normal !important;
+  word-spacing: 0 !important;
+  text-align: left;              /* mobil muammoni hal qiladi */
+}
+
+/* Agar katta ekranlarda baribir tekislangan (justify) xohlasangiz: */
+@media (min-width: 768px) {
+  .reader-text.justify {
+    text-align: justify;
+    text-justify: inter-word;
+    hyphens: auto;
+  }
+}
