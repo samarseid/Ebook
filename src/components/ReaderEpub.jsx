@@ -565,7 +565,6 @@ const iconColor = isDark ? '#f5f5f5' : '#111';
           whiteSpace: 'pre-wrap',
           lineHeight: '1.8',
           fontSize: `${fontSize}px`,
-          textAlign: 'justify',
           fontFamily,
           marginBottom: '3.6rem',
           overflowX: 'hidden',
