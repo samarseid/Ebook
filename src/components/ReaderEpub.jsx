@@ -18,6 +18,7 @@ const ReaderEpub = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showJumpModal, setShowJumpModal] = useState(false);
   const [jumpInput, setJumpInput] = useState('');
+  const [showReadList, setShowReadList] = useState(false); // ⬅️ O‘qilganlar ro‘yxati
 
   const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('fontSize') || '16', 10));
   const [fontFamily, setFontFamily] = useState(() => localStorage.getItem('fontFamily') || 'Times New Roman');
@@ -46,6 +47,12 @@ const ReaderEpub = () => {
       else next.add(currentPage);
       return next;
     });
+  };
+
+  const clearAllRead = () => {
+    if (confirm('Barcha o‘qilgan belgilari o‘chirilsinmi?')) {
+      setReadPages(new Set());
+    }
   };
 
   useEffect(() => {
@@ -111,25 +118,24 @@ const ReaderEpub = () => {
 
   const goHome = () => navigate('/');
 
-  // ------------ Swipe / Tap navigatsiya (Reader bilan bir xil) ------------
+  // ------------ Swipe / Tap navigatsiya ------------
   const goNext = useCallback(() => {
     setCurrentPage((p) => (p < pages.length - 1 ? p + 1 : p));
   }, [pages.length]);
-
   const goPrev = useCallback(() => {
     setCurrentPage((p) => (p > 0 ? p - 1 : p));
   }, []);
 
-  const threshold = 50;          // minimal gorizontal siljish pikseli
-  const tapZonePercent = 0.25;   // chap/o‘ng chekka zonasi (25%)
+  const threshold = 50;
+  const tapZonePercent = 0.25;
 
   const startX = useRef(0);
   const startY = useRef(0);
   const moved = useRef(false);
 
   const guardBlocked = useCallback(
-    () => (showSettings || showJumpModal || showSearch),
-    [showSettings, showJumpModal, showSearch]
+    () => (showSettings || showJumpModal || showSearch || showReadList),
+    [showSettings, showJumpModal, showSearch, showReadList]
   );
 
   // ❗️UI element bosilganda navigatsiyani bloklash
@@ -166,13 +172,11 @@ const ReaderEpub = () => {
     const dx = c.clientX - startX.current;
     const dy = c.clientY - startY.current;
 
-    // swipe
     if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) >= threshold) {
       if (dx < 0) goNext(); else goPrev();
       return;
     }
 
-    // tap (chekka zonalar)
     if (!moved.current) {
       const w = window.innerWidth || document.documentElement.clientWidth;
       if (c.clientX <= w * tapZonePercent) goPrev();
@@ -219,9 +223,9 @@ const ReaderEpub = () => {
     if (guardBlocked()) return;
     if (e.key === 'ArrowRight') goNext();
     if (e.key === 'ArrowLeft') goPrev();
-    if (e.key.toLowerCase() === 'r') toggleReadCurrent(); // R bilan belgilash
+    if (e.key.toLowerCase() === 'r') toggleReadCurrent();
   }, [guardBlocked, goNext, goPrev]);
-  // ------------------------------------------------------------------------
+  // --------------------------------------------------
 
   // ------------- 🔍 Qidiruv yordamchi funksiyalar -------------
   const makeSnippet = (text, pos, qlen) => {
@@ -260,6 +264,21 @@ const ReaderEpub = () => {
   };
   // ------------------------------------------------------------
 
+  // 🔢 O‘qilgan sahifalarni compact ko‘rinishga keltirish (foydalanuvchiga 1-based ko‘rsatamiz)
+  const compactRanges = (arr) => {
+    const a = [...new Set(arr)].sort((x, y) => x - y);
+    const out = [];
+    let s = null, p = null;
+    for (const n of a) {
+      if (s === null) { s = p = n; continue; }
+      if (n === p + 1) { p = n; continue; }
+      out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`);
+      s = p = n;
+    }
+    if (s !== null) out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`);
+    return out.join(', ');
+  };
+
   if (loading) {
     return (
       <div
@@ -287,6 +306,8 @@ const ReaderEpub = () => {
   const border = '#e5e7eb';
   const progressTrack = isDark ? '#333' : '#e5e7eb';
   const progressBar = isDark ? '#f5f5f5' : '#1c1c1c';
+
+  const readArr = Array.from(readPages);
 
   return (
     <div
@@ -317,17 +338,18 @@ const ReaderEpub = () => {
       >
         <button
           data-block-nav="true"
-          onClick={(e) => { e.stopPropagation(); goHome(); }}
+          onClick={(e) => { e.stopPropagation(); navigate('/'); }}
           title="Orqaga"
           style={{ background: 'transparent', border: 'none', padding: 4, cursor: 'pointer' }}
         >
           <IoChevronBack size={24} />
         </button>
 
-        {/* % badge */}
-        <div
+        {/* % badge (bosilsa o‘qilganlar ro‘yxati) */}
+        <button
           data-block-nav="true"
-          title="O'qilgan foiz"
+          onClick={(e) => { e.stopPropagation(); setShowReadList(true); }}
+          title="O‘qilgan sahifalar ro‘yxati"
           style={{
             fontSize: 12,
             padding: '6px 10px',
@@ -338,10 +360,11 @@ const ReaderEpub = () => {
             minWidth: 44,
             textAlign: 'center',
             userSelect: 'none',
+            cursor: 'pointer'
           }}
         >
           {progress}%
-        </div>
+        </button>
 
         <div data-block-nav="true" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <button
@@ -546,7 +569,7 @@ const ReaderEpub = () => {
           touchAction: 'manipulation',
         }}
       >
-        {isCurrentRead ? '✅ O‘qilgan' : '✅ O‘qildi deb belgilash'}
+        {isCurrentRead ? 'O‘qilgan' : 'O‘qildi deb belgilash'}
       </button>
 
       {/* PAGE INDICATOR (tap to jump) */}
@@ -576,6 +599,109 @@ const ReaderEpub = () => {
       >
         {currentPage + 1} / {pages.length}
       </div>
+
+      {/* READ LIST (Bottom Sheet) */}
+      {showReadList && (
+        <>
+          <div
+            className="readlist-overlay"
+            data-block-nav="true"
+            onClick={() => setShowReadList(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.35)',
+              zIndex: 1200,
+            }}
+          />
+          <div
+            className="readlist-panel"
+            data-block-nav="true"
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            onTouchMove={(e) => e.stopPropagation()}
+            onTouchEnd={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerMove={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
+            style={{
+              position: 'fixed',
+              bottom: 0,
+              left: 0,
+              right: 0,
+              background: '#fff',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              boxShadow: '0 -8px 24px rgba(0,0,0,0.18)',
+              padding: '16px 16px 20px',
+              zIndex: 1300,
+              maxHeight: '75vh',
+              overflowY: 'auto',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontWeight: 700, fontSize: 16, color: '#111' }}>
+                O‘qilganlar ({readArr.length} sahifa)
+              </div>
+              <button
+                data-block-nav="true"
+                onClick={(e) => { e.stopPropagation(); clearAllRead(); }}
+                style={{
+                  background: '#fff',
+                  border: '1px solid #eee',
+                  borderRadius: 10,
+                  padding: '6px 10px',
+                  fontSize: 12,
+                  cursor: 'pointer'
+                }}
+              >
+                Tozalash
+              </button>
+            </div>
+
+            {/* Kompakt ko‘rinish */}
+            <div
+              style={{
+                fontSize: 13,
+                color: '#555',
+                background: '#f7f7f7',
+                border: '1px solid #eee',
+                borderRadius: 10,
+                padding: '8px 10px',
+                marginBottom: 10,
+                lineHeight: 1.5
+              }}
+            >
+              {readArr.length ? compactRanges(readArr) : 'Hali sahifalar belgilanmagan'}
+            </div>
+
+            {/* Chiplar ro‘yxati */}
+            {!!readArr.length && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {readArr.sort((a, b) => a - b).map((p) => (
+                  <button
+                    key={p}
+                    data-block-nav="true"
+                    onClick={(e) => { e.stopPropagation(); setCurrentPage(p); setShowReadList(false); }}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: 999,
+                      border: '1px solid #e5e7eb',
+                      background: '#fafafa',
+                      cursor: 'pointer',
+                      fontSize: 12,
+                      color: '#111'
+                    }}
+                    title={`Sahifa ${p + 1}`}
+                  >
+                    {p + 1}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
 
       {/* JUMP MODAL */}
       {showJumpModal && (
