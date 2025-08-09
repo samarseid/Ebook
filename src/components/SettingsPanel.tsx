@@ -26,6 +26,19 @@ const SettingsPanel: React.FC<SettingsProps> = ({
 }) => {
   const sliderRef = useRef<HTMLInputElement>(null);
 
+  // LocalStorage'dan o'qish va saqlash
+  useEffect(() => {
+    const savedSize = localStorage.getItem('fontSize');
+    if (savedSize) {
+      setFontSize(Number(savedSize));
+    }
+  }, [setFontSize]);
+
+  useEffect(() => {
+    localStorage.setItem('fontSize', String(fontSize));
+  }, [fontSize]);
+
+  // Yorug‘lik gradient
   useEffect(() => {
     if (sliderRef.current) {
       const percent = brightness;
@@ -35,11 +48,13 @@ const SettingsPanel: React.FC<SettingsProps> = ({
 
   return (
     <>
-      {/* FON ORQASI: CLICK -> YOPISH */}
+      {/* Orqa fon — bosilganda yopiladi */}
       <div className="settings-overlay" onClick={onClose}></div>
 
-      {/* MODAL PASTDA QOTGAN */}
+      {/* Asosiy panel */}
       <div className="settings-panel">
+        
+        {/* Yorug‘lik sozlamasi */}
         <h3>Yorug‘lik</h3>
         <div className="slider-row">
           <span>🌙</span>
@@ -55,6 +70,7 @@ const SettingsPanel: React.FC<SettingsProps> = ({
           <span>☀️</span>
         </div>
 
+        {/* Fon rangi */}
         <h3>Fon rangi</h3>
         <div className="button-group">
           {['#ffffff', '#fdf6e3', '#1e1e1e'].map((bg) => (
@@ -73,6 +89,7 @@ const SettingsPanel: React.FC<SettingsProps> = ({
           ))}
         </div>
 
+        {/* Shrift turi */}
         <h3>Yozuv turi</h3>
         <div className="button-group">
           {['Inter', 'Georgia', 'Roboto Slab'].map((f) => (
@@ -86,10 +103,24 @@ const SettingsPanel: React.FC<SettingsProps> = ({
           ))}
         </div>
 
+        {/* Shrift kattaligi */}
         <h3>Yozuv kattaligi</h3>
         <div className="button-group">
-          <button onClick={() => setFontSize(Math.max(12, fontSize - 2))}>A-</button>
-          <button onClick={() => setFontSize(fontSize + 2)}>A+</button>
+          <button 
+            onClick={() => setFontSize(Math.max(12, fontSize - 2))}
+            disabled={fontSize <= 12}
+          >
+            A-
+          </button>
+
+          <span style={{ minWidth: '40px', textAlign: 'center' }}>{fontSize}px</span>
+
+          <button 
+            onClick={() => setFontSize(Math.min(20, fontSize + 2))}
+            disabled={fontSize >= 20}
+          >
+            A+
+          </button>
         </div>
       </div>
     </>

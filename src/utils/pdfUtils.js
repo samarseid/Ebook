@@ -2,6 +2,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf-worker.js';
 
 
+
 export async function loadFormattedPdfPages(url) {
   const loadingTask = pdfjsLib.getDocument(url);
   const pdf = await loadingTask.promise;
@@ -39,7 +40,7 @@ export async function loadFormattedPdfPages(url) {
   }
 
   // ➤ Sahifalarga ajratish: har 200 so‘zda bitta sahifa
-  const words = fullText
+  const words = fullTextmd
     .replace(/\s{2,}/g, ' ')
     .replace(/\n\s*/g, '\n') // Yangi qatordan keyingi bo‘sh joylarni olib tashlash
     .trim()

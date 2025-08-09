@@ -10,7 +10,7 @@ bot.start((ctx) => {
           {
             text: '📚 O‘qish',
             web_app: {
-              url: 'https://ebook-seven-rosy.vercel.app/', // bu yerga link
+              url: 'https://ebook2-sepia.vercel.app/', // bu yerga link
             },
           },
         ],
@@ -20,4 +20,4 @@ bot.start((ctx) => {
   });
 });
 
-bot.launch();
+fbot.launch();
