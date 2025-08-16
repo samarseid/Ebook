@@ -1,14 +1,35 @@
 import ePub from 'epubjs';
 
-// Yordamchi: har xil "space" va entitylarni 1 dona odatiy bo'shliqqa keltirish
+const ZWSP = '\u200B'; // zero width space
+
+// 1) Bo'shliqlarni normallashtirish — ZWSP ni O'CHIRMAYMIZ!
 function normalizeSpaces(str) {
   return str
-    // HTML entity va turli no-break/narrow bo'shliqlar
     .replace(/&nbsp;/g, ' ')
-    .replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, ' ')
-    // ketma-ket whitespace -> bitta bo'shliq
-    .replace(/\s+/g, ' ')
+    // NBSP va turli "narrow space"lar -> odatiy bo'shliq (LEKIN \u200B EMAS!)
+    .replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000\uFEFF]/g, ' ')
+    // ketma-ket bo'shliqlarni qisqartirish
+    .replace(/[ \t]+/g, ' ')
+    // qator bosh-oxiridagi bo'shliqlarni silliqlash
+    .replace(/ +\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
     .trim();
+}
+
+// 2) Faqat juda UZUN tokenlar ichiga ZWSP kiritamiz (justification yirtilmasin)
+function softBreakLongTokens(str, minLen = 18, chunk = 8) {
+  // \p{L}\p{N} va "-" dan iborat, ichida bo'shliq yo‘q tokenlar
+  const re = new RegExp(`([^\\s-]{${minLen},})`, 'gu');
+  return str.replace(re, (m) => {
+    // URL/email/yo'llar/datetime ko‘rinishlari — tegmaymiz
+    if (/[\\/]|@|https?:/i.test(m)) return m;
+
+    const parts = [];
+    for (let i = 0; i < m.length; i += chunk) {
+      parts.push(m.slice(i, i + chunk));
+    }
+    return parts.join(ZWSP);
+  });
 }
 
 export async function loadFormattedEpubPages(url) {
@@ -25,19 +46,14 @@ export async function loadFormattedEpubPages(url) {
         return item.render().then(() => {
           const doc = item.document;
 
-          // 1) Ichki inline style va formatlarni bekor qilish (ba'zan spacing cho'zilishiga sabab bo'ladi)
+          // Inline stylelarni olib tashlash (keraksiz spacing ta'sirlarini yo'qotish)
           if (doc) {
-            doc.querySelectorAll('*').forEach(el => {
-              el.removeAttribute('style'); // agressiv lekin bo'shliq muammolarini kesadi
-            });
+            doc.querySelectorAll('*').forEach(el => el.removeAttribute('style'));
           }
 
-          // 2) Faqat oddiy matnni olamiz (HTML'ni tashlab yuboramiz)
+          // Faqat oddiy matn
           let rawText = (doc?.body?.innerText || doc?.body?.textContent || '');
-
-          // 3) Matnni normallashtirish
           rawText = normalizeSpaces(rawText);
-
           return rawText;
         });
       });
@@ -50,11 +66,12 @@ export async function loadFormattedEpubPages(url) {
     }
   }
 
-  // Yakuniy tozalash
+  // Yakuniy tozalash + EHTIYOTKOR soft break
   const cleaned = normalizeSpaces(fullText);
+  const withSoftBreaks = softBreakLongTokens(cleaned, 18, 8);
 
-  // 200 so'zdan iborat sahifalarga bo'lish (istasa o‘zgartirishingiz mumkin)
-  const words = cleaned.split(/\s+/);
+  // Sahifalash (xohishga ko‘ra 150–180)
+  const words = withSoftBreaks.split(/\s+/);
   const pages = [];
   for (let i = 0; i < words.length; i += 150) {
     pages.push(words.slice(i, i + 150).join(' '));

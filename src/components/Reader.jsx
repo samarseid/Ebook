@@ -5,8 +5,45 @@ import { loadFormattedPdfPages } from '../utils/pdfUtils';
 import { useTelegram, tg } from '../hooks/useTelegram';
 import SettingsPanel from '../components/SettingsPanel';
 import { IoSettingsSharp, IoChevronBack, IoSearchSharp } from 'react-icons/io5';
+import './reader.css';
 
 const HL_KEY = (bookId) => `highlights:${bookId}`;
+
+/* ================= HY­PHEN FALLBACK (lotin + kiril) ================= */
+const VOWELS_RE = /[aeiouаеёиоуыэюяAEIOUАЕЁИОУЫЭЮЯ]/;
+function insertSoftHyphens(word) {
+  const MIN_LEN = 12;
+  if (!word || word.length < MIN_LEN) return word;
+
+  const parts = [];
+  let buf = '';
+  const isV = (ch) => VOWELS_RE.test(ch);
+
+  for (let i = 0; i < word.length; i++) {
+    buf += word[i];
+    const next = word[i + 1] || '';
+    const change = (isV(word[i]) && !isV(next)) || (!isV(word[i]) && isV(next));
+    const longEnough = buf.length >= 6;
+    const tooLong = buf.length >= 8;
+    if ((longEnough && change) || tooLong) {
+      parts.push(buf);
+      buf = '';
+    }
+  }
+  if (buf) parts.push(buf);
+  return parts.join('\u00AD'); // soft hyphen
+}
+function hyphenateVisible(s) {
+  if (!s) return s;
+  try {
+    // Unicode (lotin+kiril) so‘zlar: 12+ belgida bo‘linadi
+    return s.replace(/[\p{L}\p{M}]{12,}/gu, (w) => insertSoftHyphens(w));
+  } catch {
+    // Juda eski dvigatel bo‘lsa
+    return s.replace(/\w{12,}/g, (w) => insertSoftHyphens(w));
+  }
+}
+/* ==================================================================== */
 
 const Reader = () => {
   const { user } = useTelegram();
@@ -206,58 +243,42 @@ const Reader = () => {
   };
 
   // Yoritmani qo‘shish
- const addHighlight = (page, start, end, color = '#fff59d') => {
-  let ns = Math.min(start, end);
-  let ne = Math.max(start, end);
+  const addHighlight = (page, start, end, color = '#fff59d') => {
+    let ns = Math.min(start, end);
+    let ne = Math.max(start, end);
 
-  // faqat bo‘sh joy tanlangan bo‘lsa — NO-OP
-  const text = pages[page] || '';
-  const slice = text.slice(ns, ne);
-  if (!slice || !slice.trim()) {
-    setHlMenu(m => ({ ...m, visible:false }));
-    window.getSelection()?.removeAllRanges();
-    return;
-  }
-
-  setHighlights(prev => {
-    // Sahifa bo‘yicha ajratamiz
-    const keepOther = prev.filter(h => h.page !== page);
-    const samePage  = prev.filter(h => h.page === page);
-
-    // 1) Agar TANLOV allaqachon mavjud highlight ICHIDA bo‘lsa -> NO-OP (hech narsa qilmaymiz)
-    for (const h of samePage) {
-      if (isCoveredBy(h.start, h.end, ns, ne)) {
-        return prev; // hech qanday o‘zgarish yo‘q
-      }
+    const text = pages[page] || '';
+    const slice = text.slice(ns, ne);
+    if (!slice || !slice.trim()) {
+      setHlMenu(m => ({ ...m, visible:false }));
+      window.getSelection()?.removeAllRanges();
+      return;
     }
 
-    // 2) Qisman kesishganlarni birlashtirish (no ko‘paytirish)
-    let blocks = [...samePage];
-    // Tanlovni yangi element sifatida qo‘shib, keyin merge qilamiz:
-    blocks.push({ id: 'tmp', page, start: ns, end: ne, color });
+    setHighlights(prev => {
+      const keepOther = prev.filter(h => h.page !== page);
+      const samePage  = prev.filter(h => h.page === page);
 
-    // Faqat start/end ranglari bilan birga sahifaning intervallarini normalizatsiya qilamiz
-    const merged = mergePageRanges(
-      blocks.map(({ start, end }) => ({ start, end }))
-    );
+      for (const h of samePage) {
+        if (isCoveredBy(h.start, h.end, ns, ne)) return prev;
+      }
 
-    // mergePageRanges rang saqlamaydi — qayta yasalgan disjoint interval ro‘yxat
-    const normalized = merged.map(r => ({
-      id: `${page}-${r.start}-${r.end}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-      page,
-      start: r.start,
-      end: r.end,
-      color
-    }));
+      let blocks = [...samePage];
+      blocks.push({ id: 'tmp', page, start: ns, end: ne, color });
 
-    return [...keepOther, ...normalized];
-  });
+      const merged = mergePageRanges(blocks.map(({ start, end }) => ({ start, end })));
+      const normalized = merged.map(r => ({
+        id: `${page}-${r.start}-${r.end}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+        page, start: r.start, end: r.end, color
+      }));
 
-  setHlMenu({ visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null });
-  selectionOffsetsRef.current = { start: null, end: null };
-  window.getSelection()?.removeAllRanges();
-};
+      return [...keepOther, ...normalized];
+    });
 
+    setHlMenu({ visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null });
+    selectionOffsetsRef.current = { start: null, end: null };
+    window.getSelection()?.removeAllRanges();
+  };
 
   // Yoritmani o‘chirish
   const removeHighlight = (id) => {
@@ -303,68 +324,67 @@ const Reader = () => {
     });
   };
 
-  // Sahifa matnini highlight bilan render qilish
-const renderWithHighlights = (text, pageIndex) => {
-  const pageHls = highlights
-    .filter(h => h.page === pageIndex)
-    .sort((a, b) => a.start - b.start || a.end - b.end);
+  // Sahifa matnini highlight bilan render qilish (SOFT-HYPHEN qo'llangan)
+  const renderWithHighlights = (text, pageIndex) => {
+    const pageHls = highlights
+      .filter(h => h.page === pageIndex)
+      .sort((a, b) => a.start - b.start || a.end - b.end);
 
-  if (pageHls.length === 0) return text;
+    if (pageHls.length === 0) return hyphenateVisible(text);
 
-  const out = [];
-  let cursor = 0;
+    const out = [];
+    let cursor = 0;
 
-  for (const h of pageHls) {
-    let s = Math.max(0, Math.min(text.length, h.start));
-    let e = Math.max(0, Math.min(text.length, h.end));
+    for (const h of pageHls) {
+      let s = Math.max(0, Math.min(text.length, h.start));
+      let e = Math.max(0, Math.min(text.length, h.end));
 
-    if (e <= cursor) continue;   // allaqachon chizilgan qism
-    if (s < cursor) s = cursor;  // qisman ustma-ust bo‘lsa, boshlanishni ko‘tar
+      if (e <= cursor) continue;
+      if (s < cursor) s = cursor;
 
-    if (cursor < s) out.push(text.slice(cursor, s));
-    out.push(
-      <mark
-        key={`${h.id}-${s}-${e}`}
-        data-block-nav="true"
-        onMouseDown={(e)=>e.stopPropagation()}
-        onTouchStart={(e)=>e.stopPropagation()}
-        onClick={(e) => showRemoveMenuFor(e, h.id)}
-        style={{ background: h.color || '#fff59d', padding: '0 0.5px', borderRadius: '2px' }}
-      >
-        {text.slice(s, e)}
-      </mark>
-    );
-    cursor = e;
-  }
-
-  if (cursor < text.length) out.push(text.slice(cursor));
-  return out;
-};
-
-// ======== HIGHLIGHT HELPERS ========
-const rangesOverlap = (aStart, aEnd, bStart, bEnd) => !(aEnd <= bStart || bEnd <= aStart);
-const isCoveredBy = (outerStart, outerEnd, innerStart, innerEnd) =>
-  outerStart <= innerStart && innerEnd <= outerEnd;
-
-// Berilgan sahifadagi highlightlarni birlashtirib, QO'SHILMAYDIGAN (disjoint) ro‘yxat qaytaradi
-const mergePageRanges = (items) => {
-  if (!items.length) return [];
-  const sorted = [...items].sort((x, y) => x.start - y.start || x.end - y.end);
-  const out = [];
-  let cur = { ...sorted[0] };
-  for (let i = 1; i < sorted.length; i++) {
-    const h = sorted[i];
-    if (rangesOverlap(cur.start, cur.end, h.start, h.end) || cur.end === h.start) {
-      cur.start = Math.min(cur.start, h.start);
-      cur.end   = Math.max(cur.end,   h.end);
-    } else {
-      out.push(cur);
-      cur = { ...h };
+      if (cursor < s) out.push(hyphenateVisible(text.slice(cursor, s)));
+      out.push(
+        <mark
+          key={`${h.id}-${s}-${e}`}
+          data-block-nav="true"
+          onMouseDown={(e)=>e.stopPropagation()}
+          onTouchStart={(e)=>e.stopPropagation()}
+          onClick={(e) => showRemoveMenuFor(e, h.id)}
+          style={{ background: h.color || '#fff59d', padding: '0 0.5px', borderRadius: '2px' }}
+        >
+          {hyphenateVisible(text.slice(s, e))}
+        </mark>
+      );
+      cursor = e;
     }
-  }
-  out.push(cur);
-  return out;
-};
+
+    if (cursor < text.length) out.push(hyphenateVisible(text.slice(cursor)));
+    return out;
+  };
+
+  // ======== HIGHLIGHT HELPERS ========
+  const rangesOverlap = (aStart, aEnd, bStart, bEnd) => !(aEnd <= bStart || bEnd <= aStart);
+  const isCoveredBy = (outerStart, outerEnd, innerStart, innerEnd) =>
+    outerStart <= innerStart && innerEnd <= outerEnd;
+
+  const mergePageRanges = (items) => {
+    if (!items.length) return [];
+    const sorted = [...items].sort((x, y) => x.start - y.start || x.end - y.end);
+    const out = [];
+    let cur = { ...sorted[0] };
+    for (let i = 1; i < sorted.length; i++) {
+      const h = sorted[i];
+      if (rangesOverlap(cur.start, cur.end, h.start, h.end) || cur.end === h.start) {
+        cur.start = Math.min(cur.start, h.start);
+        cur.end   = Math.max(cur.end,   h.end);
+      } else {
+        out.push(cur);
+        cur = { ...h };
+      }
+    }
+    out.push(cur);
+    return out;
+  };
 
   // ======== PAGE SLIDE ANIMATSIYASI ========
   const threshold = 50;
@@ -377,7 +397,6 @@ const mergePageRanges = (items) => {
   );
   const shouldBlockFromTarget = (t) => (t?.closest && t.closest('[data-block-nav="true"]')) ? true : false;
 
-  // anim holati
   const [anim, setAnim] = useState({
     active: false,
     stage: 'idle',            // 'idle' | 'prep' | 'run'
@@ -386,7 +405,6 @@ const mergePageRanges = (items) => {
     target: null
   });
 
-  // anim boshlash
   const startAnim = (targetIndex, dir) => {
     if (anim.active) return;
     if (targetIndex < 0 || targetIndex >= pages.length || targetIndex === currentPage) return;
@@ -396,7 +414,6 @@ const mergePageRanges = (items) => {
     }));
   };
 
-  // touch/pointer
   const onTouchStart = useCallback((e) => {
     if (guardBlocked() || anim.active) return;
     if (shouldBlockFromTarget(e.target)) return;
@@ -405,7 +422,6 @@ const mergePageRanges = (items) => {
   }, [guardBlocked, anim.active]);
 
   const onTouchEnd = useCallback((e) => {
-    // highlight tanlash yakuni — menyuni chiqarish uchun ham ishlatamiz
     if (textWrapRef.current && textWrapRef.current.contains(e.target)) {
       setTimeout(() => showAddMenuForSelection(e), 0);
     }
@@ -436,7 +452,6 @@ const mergePageRanges = (items) => {
   }, [guardBlocked, anim.active]);
 
   const onPointerUp = useCallback((e) => {
-    // sichqoncha bilan belgilash — menyu
     if (textWrapRef.current && textWrapRef.current.contains(e.target)) {
       setTimeout(() => showAddMenuForSelection(e), 0);
     }
@@ -458,7 +473,6 @@ const mergePageRanges = (items) => {
     }
   }, [guardBlocked, flow, currentPage, anim.active]);
 
-  // klaviatura
   const onKeyDown = useCallback((e) => {
     if (guardBlocked() || anim.active) return;
     if (flow === 'horizontal') {
@@ -471,14 +485,12 @@ const mergePageRanges = (items) => {
     if (e.key.toLowerCase() === 'r') toggleReadCurrent();
   }, [guardBlocked, flow, currentPage, anim.active]);
 
-  // anim tugashi — yangi sahifani final qilamiz
   const finishAnim = useCallback(() => {
     if (!anim.active) return;
     setCurrentPage(anim.target);
     setAnim({ active: false, stage: 'idle', dir: 'next', flowForAnim: flow, target: null });
   }, [anim, flow]);
 
-  // ------------- Qidiruv yordamchi funksiyalar -------------
   const makeSnippet = (text, pos, qlen) => {
     const start = Math.max(0, pos - 40);
     const end = Math.min(text.length, pos + qlen + 40);
@@ -508,7 +520,6 @@ const mergePageRanges = (items) => {
     setQuery('');
     setResults([]);
   };
-  // ------------------------------------------------------------
 
   const compactRanges = (arr) => {
     const a = [...new Set(arr)].sort((x, y) => x - y);
@@ -542,7 +553,6 @@ const mergePageRanges = (items) => {
   const iconColor = isDark ? '#f5f5f5' : '#111';
   const readArr = Array.from(readPages);
 
-  // anim uchun hisob-kitob
   const axis = anim.flowForAnim === 'horizontal' ? 'X' : 'Y';
   const nextFrom = (anim.dir === 'next') ? '100%' : '-100%';
   const currTo  = (anim.dir === 'next') ? '-100%' : '100%';
@@ -615,7 +625,8 @@ const mergePageRanges = (items) => {
             className="reader-text"
             ref={textWrapRef}
             onMouseUp={(e)=>{ if (textWrapRef.current?.contains(e.target)) showAddMenuForSelection(e); }}
-            onTouchEnd={(e)=>{ /* touchEnd handler yuqorida ham bor, bu zaxira */ }}
+            onTouchEnd={(e)=>{ /* zaxira */ }}
+            lang="uz-Cyrl"
             style={{
               whiteSpace: 'pre-wrap',
               lineHeight: '1.8',
@@ -624,7 +635,15 @@ const mergePageRanges = (items) => {
               marginBottom: '3.6rem',
               overflowX: 'hidden',
               maxWidth: '100%',
-              userSelect: 'text'
+              userSelect: 'text',
+
+              // Justify + xavfsiz bo'linish
+              textAlign: 'justify',
+              textJustify: 'inter-word',
+              hyphens: 'auto',
+              WebkitHyphens: 'auto',
+              overflowWrap: 'anywhere',
+              wordBreak: 'normal',
             }}
           >
             {renderWithHighlights(pages[currentPage] || '', currentPage)}
@@ -646,6 +665,7 @@ const mergePageRanges = (items) => {
             >
               <pre
                 className="reader-text"
+                lang="uz-Cyrl"
                 style={{
                   whiteSpace: 'pre-wrap',
                   lineHeight: '1.8',
@@ -654,6 +674,13 @@ const mergePageRanges = (items) => {
                   marginBottom: '3.6rem',
                   overflowX: 'hidden',
                   maxWidth: '100%',
+
+                  textAlign: 'justify',
+                  textJustify: 'inter-word',
+                  hyphens: 'auto',
+                  WebkitHyphens: 'auto',
+                  overflowWrap: 'anywhere',
+                  wordBreak: 'normal',
                 }}
               >
                 {renderWithHighlights(pages[currentPage] || '', currentPage)}
@@ -673,6 +700,7 @@ const mergePageRanges = (items) => {
             >
               <pre
                 className="reader-text"
+                lang="uz-Cyrl"
                 style={{
                   whiteSpace: 'pre-wrap',
                   lineHeight: '1.8',
@@ -681,6 +709,13 @@ const mergePageRanges = (items) => {
                   marginBottom: '3.6rem',
                   overflowX: 'hidden',
                   maxWidth: '100%',
+
+                  textAlign: 'justify',
+                  textJustify: 'inter-word',
+                  hyphens: 'auto',
+                  WebkitHyphens: 'auto',
+                  overflowWrap: 'anywhere',
+                  wordBreak: 'normal',
                 }}
               >
                 {renderWithHighlights(pages[anim.target ?? currentPage] || '', anim.target ?? currentPage)}
@@ -787,8 +822,7 @@ const mergePageRanges = (items) => {
         {currentPage + 1} / {pages.length}
       </div>
 
-      {/* READ LIST, SEARCH, JUMP MODAL, SETTINGS — mavjuding bilan bir xil */}
-      {/* 🔎 Qidiruv sheet */}
+      {/* READ LIST, SEARCH, JUMP MODAL, SETTINGS — qolganlari o'zgarishsiz */}
       {showSearch && (
         <>
           <div className="search-overlay" data-block-nav="true" onClick={() => setShowSearch(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1390 }} />
@@ -819,7 +853,6 @@ const mergePageRanges = (items) => {
         </>
       )}
 
-      {/* READ LIST */}
       {showReadList && (
         <>
           <div className="readlist-overlay" data-block-nav="true" onClick={() => setShowReadList(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1200 }} />
@@ -850,7 +883,6 @@ const mergePageRanges = (items) => {
         </>
       )}
 
-      {/* JUMP MODAL */}
       {showJumpModal && (
         <div onClick={() => setShowJumpModal(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
           <div data-block-nav="true"
@@ -869,7 +901,6 @@ const mergePageRanges = (items) => {
         </div>
       )}
 
-      {/* SETTINGS */}
       {showSettings && (
         <>
           <div className="settings-overlay" data-block-nav="true" onClick={() => setShowSettings(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1390 }} />
