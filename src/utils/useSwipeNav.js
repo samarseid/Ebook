@@ -93,7 +93,7 @@ export default function useSwipeNav({ next, prev, threshold = 50, tapZonePercent
   const onKeyDown = useCallback((e) => {
     if (e.key === 'ArrowRight') next();
     if (e.key === 'ArrowLeft') prev();
-  }, [next, prev]);
+  }, [next, next]);
 
   return {
     onTouchStart, onTouchMove, onTouchEnd,
