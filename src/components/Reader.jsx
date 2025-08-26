@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { loadFormattedPdfPages } from '../utils/pdfUtils';
 import { useTelegram, tg } from '../hooks/useTelegram';
 import SettingsPanel from '../components/SettingsPanel';
-import { IoSettingsSharp, IoChevronBack, IoSearchSharp } from 'react-icons/io5';
+import { IoSettingsSharp, IoChevronBack, IoSearchSharp, IoBookmark } from 'react-icons/io5'; // ← bookmark qo'shildi
 import './reader.css';
 
 const HL_KEY = (bookId) => `highlights:${bookId}`;
@@ -104,7 +104,7 @@ const Reader = () => {
     } catch { return new Set(); }
   });
   // Drag vaqtida page area balandligini saqlash
-const [pageBoxH, setPageBoxH] = useState(null);
+  const [pageBoxH, setPageBoxH] = useState(null);
 
   useEffect(() => {
     localStorage.setItem(`read-${bookId}`, JSON.stringify(Array.from(readPages)));
@@ -151,14 +151,55 @@ const [pageBoxH, setPageBoxH] = useState(null);
   const clearAllRead = () => {
     if (confirm('Barcha o‘qilgan belgilari o‘chirilsinmi?')) setReadPages(new Set());
   };
+// 🔎 Qidiruvdan kelgan vaqtinchalik yoritmalar
+const [searchFlash, setSearchFlash] = useState({ page: null, ranges: [] });
+
+// matndan q so‘zining barcha joyini (case-insensitive) topish
+const findAllRanges = useCallback((text, q) => {
+  if (!text || !q) return [];
+  const tlc = text.toLowerCase();
+  const qlc = q.toLowerCase();
+  const out = [];
+  let i = 0;
+  while (true) {
+    const idx = tlc.indexOf(qlc, i);
+    if (idx === -1) break;
+    out.push({ start: idx, end: idx + q.length });
+    i = idx + q.length;
+  }
+  return out;
+}, []);
 
   // Qidiruv
   const [showSearch, setShowSearch] = useState(false);
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState([]);
-  useEffect(() => { if (showSettings) setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50); }, [showSettings]);
-  useEffect(() => { if (showSearch)   setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50); }, [showSearch]);
+  const [showHighlights, setShowHighlights] = useState(false);
+// Bottom sheet/panel ochilganda pastga avtomatik scroll
+useEffect(() => {
+  // Qaysidir biri ochilganmi?
+  const opened = showSettings || showSearch || showReadList || showHighlights;
+  if (!opened) return;
+
+  // Window yoki root elementni aniqlab scroll qilamiz
+  const root = document.scrollingElement || document.documentElement;
+
+  const tick = () => {
+    root.scrollTo({
+      top: root.scrollHeight,
+      behavior: 'smooth'
+    });
+  };
+
+  // Kichik delay + rAF — panel DOMga tushib bo‘lsin
+  const id = setTimeout(() => {
+    requestAnimationFrame(tick);
+  }, 50);
+
+  return () => clearTimeout(id);
+}, [showSettings, showSearch, showReadList, showHighlights]);
+
 
   // Sozlamalarni yuklash/saqlash
   useEffect(() => {
@@ -252,31 +293,53 @@ const [pageBoxH, setPageBoxH] = useState(null);
 
   const selectionOffsetsRef = useRef({ start: null, end: null });
 
-  const getTextOffset = (root, node, nodeOffset) => {
-    let offset = 0;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
-    let current;
-    while ((current = walker.nextNode())) {
-      if (current === node) {
-        return offset + nodeOffset;
-      }
-      offset += current.nodeValue.length;
-    }
-    return offset;
-  };
-  const getSelectionOffsetsWithin = (root) => {
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return null;
+// 1) getTextOffset ni null-safe qiling (agar hali shunday bo'lmasa)
+const getTextOffset = (root, node, nodeOffset) => {
+  let offset = 0;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let current;
+  while ((current = walker.nextNode())) {
+    if (current === node) return offset + nodeOffset;
+    offset += (current.nodeValue?.length ?? 0);
+  }
+  return offset;
+};
 
-    const range = sel.getRangeAt(0);
-    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+// 2) Soft-hyphen hisoblagich
+const countSoftHyphens = (s) => (s.match(/\u00AD/g) || []).length;
 
-    const start = getTextOffset(root, range.startContainer, range.startOffset);
-    const end = getTextOffset(root, range.endContainer, range.endOffset);
-    if (start === end) return null;
+// 3) DOM offset -> RAW offset mapping
+const mapDomOffsetsToRaw = (root, startDom, endDom) => {
+  const domText = root.textContent || '';
+  // start/end dan oldingi \u00AD lar sonini topamiz
+  const shStart = countSoftHyphens(domText.slice(0, startDom));
+  const shEnd   = countSoftHyphens(domText.slice(0, endDom));
+  const startRaw = Math.max(0, startDom - shStart);
+  const endRaw   = Math.max(0, endDom - shEnd);
+  return { start: startRaw, end: endRaw };
+};
 
-    return { start: Math.min(start, end), end: Math.max(start, end), rect: range.getBoundingClientRect() };
-  };
+// 4) getSelectionOffsetsWithin ni DOM->RAW o'giradigan qilib almashtiring
+const getSelectionOffsetsWithin = (root) => {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+
+  const range = sel.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+
+  // DOM indekslari (hyphenation bilan)
+  const domStart = getTextOffset(root, range.startContainer, range.startOffset);
+  const domEnd   = getTextOffset(root, range.endContainer,   range.endOffset);
+  if (domStart === domEnd) return null;
+
+  const minDom = Math.min(domStart, domEnd);
+  const maxDom = Math.max(domStart, domEnd);
+
+  // 🔁 RAW indekslarga o‘tkazamiz (soft-hyphenlarni olib tashlab)
+  const { start, end } = mapDomOffsetsToRaw(root, minDom, maxDom);
+
+  return { start, end, rect: range.getBoundingClientRect() };
+};
 
   const addHighlight = (page, start, end, color = '#fff59d') => {
     let ns = Math.min(start, end);
@@ -354,48 +417,70 @@ const [pageBoxH, setPageBoxH] = useState(null);
     });
   };
 
-  const renderWithHighlights = (text, pageIndex) => {
-    const pageHls = highlights
-      .filter(h => h.page === pageIndex)
-      .sort((a, b) => a.start - b.start || a.end - b.end);
+  // 🔔 FLASH indikator uchun state
+  const [flashId, setFlashId] = useState(null);
+const renderWithHighlights = (text, pageIndex) => {
+  // 1) oddiy highlightlar
+  const base = highlights
+    .filter(h => h.page === pageIndex)
+    .map(h => ({ ...h, isFlash: false }));
 
-    if (pageHls.length === 0) return hyphenateVisible(text);
+  // 2) qidiruvdan kelgan vaqtinchalik highlightlar
+  const flashes = (searchFlash.page === pageIndex)
+    ? searchFlash.ranges.map((r, i) => ({
+        id: `sf-${i}`,
+        page: pageIndex,
+        start: r.start,
+        end: r.end,
+        color: '#fff1a6',   // iliq sariq
+        isFlash: true
+      }))
+    : [];
 
-    const out = [];
-    let cursor = 0;
+  // 3) ikkalasini birga, tartiblab
+  const pageHls = [...base, ...flashes].sort((a,b) => a.start - b.start || a.end - b.end);
 
-    for (const h of pageHls) {
-      let s = Math.max(0, Math.min(text.length, h.start));
-      let e = Math.max(0, Math.min(text.length, h.end));
+  if (pageHls.length === 0) return hyphenateVisible(text);
 
-      if (e <= cursor) continue;
-      if (s < cursor) s = cursor;
+  const out = [];
+  let cursor = 0;
 
-      if (cursor < s) out.push(hyphenateVisible(text.slice(cursor, s)));
-      out.push(
-        <mark
-          data-hl-menu
-          key={`${h.id}-${s}-${e}`}
-          data-block-nav="true"
-          onMouseDown={(e)=>e.stopPropagation()}
-          onTouchStart={(e)=>e.stopPropagation()}
-          onClick={(e) => showRemoveMenuFor(e, h.id)}
-          style={{
-            background: h.color || '#fff59d',
-            padding: '0 0.5px',
-            borderRadius: '2px',
-            wordSpacing: `${wordSpacing}px`,
-            letterSpacing: `${letterSpacing}px`,
-          }}
-        >
-          {hyphenateVisible(text.slice(s, e))}
-        </mark>
-      );
-      cursor = e;
-    }
-    if (cursor < text.length) out.push(hyphenateVisible(text.slice(cursor)));
-    return out;
-  };
+  for (const h of pageHls) {
+    let s = Math.max(0, Math.min(text.length, h.start));
+    let e = Math.max(0, Math.min(text.length, h.end));
+    if (e <= cursor) continue;
+    if (s < cursor) s = cursor;
+
+    if (cursor < s) out.push(hyphenateVisible(text.slice(cursor, s)));
+    out.push(
+      <mark
+        key={`${h.id}-${s}-${e}`}
+        data-block-nav="true"
+        onMouseDown={(e)=>e.stopPropagation()}
+        onTouchStart={(e)=>e.stopPropagation()}
+        onClick={(e)=>!h.isFlash && showRemoveMenuFor(e, h.id)}
+        style={{
+          background: h.color || '#fff59d',
+          padding: '0 0.5px',
+          borderRadius: '2px',
+          wordSpacing: `${wordSpacing}px`,
+          letterSpacing: `${letterSpacing}px`,
+          // 🔆 flash bo‘lsa, kuchli “glow”
+          outline: h.isFlash ? '2px solid rgba(251, 191, 36, 0.95)' : 'none',
+          boxShadow: h.isFlash ? '0 0 0 4px rgba(251, 191, 36, 0.25)' : 'none',
+          transition: 'outline 180ms ease, box-shadow 180ms ease',
+          cursor: h.isFlash ? 'default' : 'pointer'
+        }}
+      >
+        {hyphenateVisible(text.slice(s, e))}
+      </mark>
+    );
+    cursor = e;
+  }
+  if (cursor < text.length) out.push(hyphenateVisible(text.slice(cursor)));
+  return out;
+};
+
 
   // ======== HIGHLIGHT HELPERS ========
   const rangesOverlap = (aStart, aEnd, bStart, bEnd) => !(aEnd <= bStart || bEnd <= aStart);
@@ -474,10 +559,12 @@ useEffect(() => {
     return () => window.removeEventListener('resize', measure);
   }, [measure]);
 
-  const guardBlocked = useCallback(
-    () => showSettings || showJumpModal || showSearch || showReadList || hlMenu.visible,
-    [showSettings, showJumpModal, showSearch, showReadList, hlMenu.visible]
-  );
+  // 🛡️ swipe guard — highlight panelini ham hisobga oldik
+  const [hlFilter, setHlFilter] = useState('');
+ const guardBlocked = useCallback(
+   () => showSettings || showJumpModal || showSearch || showReadList || showHighlights || hlMenu.visible,
+   [showSettings, showJumpModal, showSearch, showReadList, showHighlights, hlMenu.visible]
+ );
   const shouldBlockFromTarget = (t) =>
     (t?.closest && t.closest('[data-block-nav="true"]')) ? true : false;
 
@@ -664,12 +751,21 @@ const commitOrRevert = useCallback(() => {
     setResults(found);
     setSearching(false);
   };
-  const jumpToResult = (p) => {
-    setCurrentPage(p);
-    setShowSearch(false);
-    setQuery('');
-    setResults([]);
-  };
+const jumpToResult = (p) => {
+  const q = query.trim();
+  setCurrentPage(p);
+  setShowSearch(false);
+  setQuery('');
+  setResults([]);
+
+  if (q) {
+    const ranges = findAllRanges(pages[p] || '', q);
+    setSearchFlash({ page: p, ranges });
+    // 1.8 soniyadan keyin o‘chirib qo‘yamiz
+    setTimeout(() => setSearchFlash({ page: null, ranges: [] }), 1800);
+  }
+};
+
 
   const compactRanges = (arr) => {
     const a = [...new Set(arr)].sort((x, y) => x - y);
@@ -763,6 +859,26 @@ const commitOrRevert = useCallback(() => {
   const transitionStyle = drag.committing ? 'transform 260ms ease' : 'none';
   const layerBase = { position: 'absolute', inset: 0, overflow: 'hidden', willChange: 'transform' };
 
+  // 🔎 Highlightlar paneli uchun helperlar
+  const makeHlSnippet = (text, start, end, pad = 40) => {
+    const s = Math.max(0, start - pad);
+    const e = Math.min(text.length, end + pad);
+    const raw = text.slice(s, e).replace(/\s+/g, ' ').trim();
+    const head = s > 0 ? '… ' : '';
+    const tail = e < text.length ? ' …' : '';
+    return `${head}${raw}${tail}`;
+  };
+  const preparedHls = (() => {
+    const arr = [...highlights].sort((a,b) => (a.page - b.page) || (a.start - b.start));
+    const mapped = arr.map(h => {
+      const text = pages[h.page] || '';
+      return { ...h, snippet: makeHlSnippet(text, h.start, h.end) };
+    });
+    const q = hlFilter.trim().toLowerCase();
+    if (!q) return mapped;
+    return mapped.filter(x => x.snippet.toLowerCase().includes(q));
+  })();
+
   return (
     <div
       ref={containerRef}
@@ -813,19 +929,30 @@ const commitOrRevert = useCallback(() => {
         </button>
 
         <button
+        
           data-block-nav="true"
           onClick={(e)=>{ e.stopPropagation(); openReadList(); }}
           title="O‘qilgan sahifalar"
           style={{
             fontSize:12, padding:'6px 10px', borderRadius:999, border:`1px solid ${border}`,
             background:isDark?'#1b1b1b':'#f8f8f8', color:isDark?'#f3f4f6':'#111',
-            minWidth:44, textAlign:'center', userSelect:'none', cursor:'pointer', marginLeft:'33px'
+            minWidth:44, textAlign:'center', userSelect:'none', cursor:'pointer', marginLeft:'80px'
           }}
         >
           {progress}%
         </button>
 
         <div data-block-nav="true" style={{ display:'flex', gap:12, alignItems:'center' }}>
+          {/* 🔖 Bookmark (highlights) tugma */}
+          <button
+            data-block-nav="true"
+            onClick={(e)=>{ e.stopPropagation(); setShowHighlights(true); }}
+            title="Belgilangan joylar"
+            style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}
+          >
+            <IoBookmark size={22} color={iconColor} />
+          </button>
+
           <button
             data-block-nav="true"
             onClick={(e)=>{ e.stopPropagation(); setShowSearch(v=>!v); }}
@@ -1055,6 +1182,97 @@ const commitOrRevert = useCallback(() => {
                   <button key={p} data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); setCurrentPage(p); setShowReadList(false); }}
                     style={{ padding:'8px 10px', borderRadius:999, border:'1px solid #e5e7eb', background:'#fafafa', cursor:'pointer', fontSize:12, color:'#111' }}
                     title={`Sahifa ${p+1}`}>{p+1}</button>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* 🔖 HIGHLIGHTS PANEL (Bottom Sheet) */}
+      {showHighlights && (
+        <>
+          <div
+            className="hl-overlay"
+            data-block-nav="true"
+            onClick={() => setShowHighlights(false)}
+            style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1450 }}
+          />
+          <div
+            className="hl-panel"
+            data-block-nav="true"
+            onClick={(e)=>e.stopPropagation()}
+            onTouchStart={(e)=>e.stopPropagation()}
+            onTouchMove={(e)=>e.stopPropagation()}
+            onTouchEnd={(e)=>e.stopPropagation()}
+            onPointerDown={(e)=>e.stopPropagation()}
+            onPointerMove={(e)=>e.stopPropagation()}
+            onPointerUp={(e)=>e.stopPropagation()}
+            style={{
+              position:'fixed', left:0, right:0, bottom:0, zIndex:1460,
+              background: surface, borderTopLeftRadius:24, borderTopRightRadius:24,
+              boxShadow:'0 -8px 24px rgba(0,0,0,0.18)', padding:'14px 14px 18px',
+              maxHeight:'75vh', overflowY:'auto', WebkitOverflowScrolling:'touch'
+            }}
+          >
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+              <div style={{ fontWeight:700, fontSize:16 }}>{`Belgilangan joylar (${preparedHls.length})`}</div>
+              <button
+                data-block-nav="true"
+                onClick={() => setShowHighlights(false)}
+                style={{ fontSize:12, border:'1px solid #e5e7eb', background:isDark?'#1b1b1b':'#f8f8f8', borderRadius:10, padding:'6px 10px', cursor:'pointer' }}
+              >
+                Yopish
+              </button>
+            </div>
+
+            <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+              <input
+                data-block-nav="true"
+                value={hlFilter}
+                onChange={(e)=>setHlFilter(e.target.value)}
+                placeholder="Belgilanganlardan qidirish…"
+                style={{ flex:1, padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', outline:'none', fontSize:14,
+                         background:isDark?'#1c1c1c':'#fff', color:isDark?'#f5f5f5':'#111' }}
+              />
+              {hlFilter && (
+                <button
+                  data-block-nav="true"
+                  onClick={()=>setHlFilter('')}
+                  style={{ padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', background:'#e5e7eb', cursor:'pointer', fontSize:14 }}
+                >
+                  Toza
+                </button>
+              )}
+            </div>
+
+            {preparedHls.length === 0 ? (
+              <div style={{ fontSize:13, color:'#6b7280' }}>Hali belgilangan joy yo‘q.</div>
+            ) : (
+              <div style={{ display:'grid', gap:8 }}>
+                {preparedHls.map((h) => (
+                  <button
+                    key={h.id}
+                    data-block-nav="true"
+                    onClick={() => {
+                      setShowHighlights(false);
+                      setCurrentPage(h.page);
+                      // mark DOMga tushishi uchun kichik delay va flash
+                      setTimeout(() => { setFlashId(h.id); setTimeout(()=>setFlashId(null), 900); }, 50);
+                    }}
+                    style={{
+                      textAlign:'left', border:`1px solid ${border}`, background:cardBg,
+                      color:isDark?'#f3f4f6':'#111', borderRadius:12, padding:'10px 12px', cursor:'pointer'
+                    }}
+                    title={`Sahifa ${h.page + 1}`}
+                  >
+                    <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>
+                      Sahifa {h.page + 1}
+                    </div>
+                    <div style={{ fontSize:14, lineHeight:1.5 }}>
+                      {h.snippet}
+                    </div>
+                  </button>
                 ))}
               </div>
             )}

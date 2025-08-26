@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { loadFormattedEpubPages } from '../utils/epubUtils';
 import { useTelegram, tg } from '../hooks/useTelegram';
 import SettingsPanel from '../components/SettingsPanel';
-import { IoSettingsSharp, IoChevronBack, IoSearchSharp } from 'react-icons/io5';
+import { IoSettingsSharp, IoChevronBack, IoSearchSharp, IoBookmark } from 'react-icons/io5';
+
+const HL_KEY = (bookId) => `highlights:${bookId}`;
 
 /* ================= HY­PHEN FALLBACK (lotin + kiril) ================= */
 const VOWELS_RE = /[aeiouаеёиоуыэюяAEIOUАЕЁИОУЫЭЮЯ]/;
@@ -48,16 +50,18 @@ const ReaderEpub = () => {
   const { user } = useTelegram();
   const navigate = useNavigate();
 
+  // Epub identifikatori (kerak bo‘lsa title/id bilan almashtir)
   const bookId = 'test2.epub';
 
   const [pages, setPages] = useState([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  const [showSettings, setShowSettings] = useState(false);
-  const [showJumpModal, setShowJumpModal] = useState(false);
-  const [jumpInput, setJumpInput] = useState('');
-  const [showReadList, setShowReadList] = useState(false);
+  // Modallar
+const [showSettings, setShowSettings] = useState(false);
+const [showJumpModal, setShowJumpModal] = useState(false);
+const [jumpInput, setJumpInput] = useState('');
+const [showReadList, setShowReadList] = useState(false);
 
   // UI settings
   const [fontSize, setFontSize] = useState(() => {
@@ -71,7 +75,7 @@ const ReaderEpub = () => {
     return saved ? parseInt(saved, 10) : 100;
   });
 
-  // Tipografiya
+  // Yangi tipografiya sozlamalari
   const [pageMargin, setPageMargin] = useState(() => Number(localStorage.getItem('pageMargin') ?? 24));
   const [wordSpacing, setWordSpacing] = useState(() => Number(localStorage.getItem('wordSpacing') ?? 0));
   const [letterSpacing, setLetterSpacing] = useState(() => Number(localStorage.getItem('letterSpacing') ?? 0));
@@ -95,6 +99,113 @@ const ReaderEpub = () => {
   useEffect(() => {
     localStorage.setItem(`read-${bookId}`, JSON.stringify(Array.from(readPages)));
   }, [readPages, bookId]);
+
+  // Drag paytida balandlikni qotirish
+  const [pageBoxH, setPageBoxH] = useState(null);
+// 🔎 Qidiruvdan kelgan vaqtinchalik yoritmalar
+const [searchFlash, setSearchFlash] = useState({ page: null, ranges: [] });
+
+// matndan q so‘zining barcha joyini (case-insensitive) topish
+const findAllRanges = useCallback((text, q) => {
+  if (!text || !q) return [];
+  const tlc = text.toLowerCase();
+  const qlc = q.toLowerCase();
+  const out = [];
+  let i = 0;
+  while (true) {
+    const idx = tlc.indexOf(qlc, i);
+    if (idx === -1) break;
+    out.push({ start: idx, end: idx + q.length });
+    i = idx + q.length;
+  }
+  return out;
+}, []);
+
+  // Qidiruv
+const [showSearch, setShowSearch] = useState(false);
+const [query, setQuery] = useState('');
+const [searching, setSearching] = useState(false);
+const [results, setResults] = useState([]);
+const [showHighlights, setShowHighlights] = useState(false);
+// Bottom sheet/panel ochilganda pastga avtomatik scroll
+useEffect(() => {
+  // Qaysidir biri ochilganmi?
+  const opened = showSettings || showSearch || showReadList || showHighlights;
+  if (!opened) return;
+
+  // Window yoki root elementni aniqlab scroll qilamiz
+  const root = document.scrollingElement || document.documentElement;
+
+  const tick = () => {
+    root.scrollTo({
+      top: root.scrollHeight,
+      behavior: 'smooth'
+    });
+  };
+
+  // Kichik delay + rAF — panel DOMga tushib bo‘lsin
+  const id = setTimeout(() => {
+    requestAnimationFrame(tick);
+  }, 50);
+
+  return () => clearTimeout(id);
+}, [showSettings, showSearch, showReadList, showHighlights]);
+
+  // Highlights list paneli
+
+  const [hlFilter, setHlFilter] = useState('');
+
+  // X overflow guard
+  useEffect(() => {
+    document.body.style.overflowX = 'hidden';
+    document.documentElement.style.overflowX = 'hidden';
+    return () => {
+      document.body.style.overflowX = '';
+      document.documentElement.style.overflowX = '';
+    };
+  }, []);
+
+  // Sozlamalarni LS dan yuklash/saqlash
+  useEffect(() => {
+    const s1 = localStorage.getItem('fontSize');
+    const s2 = localStorage.getItem('fontFamily');
+    const s3 = localStorage.getItem('background');
+    const s4 = localStorage.getItem('brightness');
+    if (s1) setFontSize(parseInt(s1, 10));
+    if (s2) setFontFamily(s2);
+    if (s3) setBackground(s3);
+    if (s4) setBrightness(parseInt(s4, 10));
+  }, []);
+  useEffect(() => {
+    localStorage.setItem('fontSize', String(fontSize));
+    localStorage.setItem('fontFamily', fontFamily);
+    localStorage.setItem('background', background);
+    localStorage.setItem('brightness', String(brightness));
+  }, [fontSize, fontFamily, background, brightness]);
+
+  useEffect(() => { localStorage.setItem('pageMargin', String(pageMargin)); }, [pageMargin]);
+  useEffect(() => { localStorage.setItem('wordSpacing', String(wordSpacing)); }, [wordSpacing]);
+  useEffect(() => { localStorage.setItem('letterSpacing', String(letterSpacing)); }, [letterSpacing]);
+
+  // Sahifalarni yuklash + lastPage
+  useEffect(() => {
+    tg.ready();
+    loadFormattedEpubPages('/books/test2.epub')
+      .then((loadedPages) => {
+        setPages(loadedPages);
+        const savedPage = localStorage.getItem(`lastPage-${bookId}`);
+        if (savedPage !== null) {
+          const page = parseInt(savedPage, 10);
+          if (!isNaN(page) && page >= 0 && page < loadedPages.length) setCurrentPage(page);
+        }
+      })
+      .finally(() => setLoading(false));
+  }, []);
+  useEffect(() => {
+    if (pages.length > 0) localStorage.setItem(`lastPage-${bookId}`, String(currentPage));
+  }, [currentPage, pages]);
+
+  // Read list progress
   const totalPages = pages.length;
   const progress = totalPages ? Math.floor((readPages.size / totalPages) * 100) : 0;
   const isCurrentRead = readPages.has(currentPage);
@@ -110,7 +221,16 @@ const ReaderEpub = () => {
     return true;
   })();
 
-  // Rang yorqinligi
+  const openReadList = () => {
+    if (document.activeElement?.blur) document.activeElement.blur();
+    setShowReadList(true);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+      });
+    });
+  };
+
   const isColorDark = (hex) => {
     try {
       if (!hex) return false;
@@ -123,70 +243,11 @@ const ReaderEpub = () => {
       return br < 140;
     } catch { return false; }
   };
-
-  // Qidiruv
-  const [showSearch, setShowSearch] = useState(false);
-  const [query, setQuery] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState([]);
-
-  useEffect(() => {
-    if (showSettings) setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50);
-  }, [showSettings]);
-  useEffect(() => {
-    if (showSearch) setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50);
-  }, [showSearch]);
-
-  // Persist UI
-  useEffect(() => {
-    localStorage.setItem('fontSize', String(fontSize));
-    localStorage.setItem('fontFamily', fontFamily);
-    localStorage.setItem('background', background);
-    localStorage.setItem('brightness', String(brightness));
-  }, [fontSize, fontFamily, background, brightness]);
-  useEffect(() => { localStorage.setItem('pageMargin', String(pageMargin)); }, [pageMargin]);
-  useEffect(() => { localStorage.setItem('wordSpacing', String(wordSpacing)); }, [wordSpacing]);
-  useEffect(() => { localStorage.setItem('letterSpacing', String(letterSpacing)); }, [letterSpacing]);
-
-  // EPUB yuklash + lastPage
-  useEffect(() => {
-    tg.ready();
-    loadFormattedEpubPages(`/books/${bookId}`)
-      .then((loadedPages) => {
-        setPages(loadedPages);
-        const saved = localStorage.getItem(`lastPage-${bookId}`);
-        const page = saved ? parseInt(saved, 10) : 0;
-        if (!isNaN(page) && page >= 0 && page < loadedPages.length) setCurrentPage(page);
-        else setCurrentPage(0);
-      })
-      .finally(() => setLoading(false));
-  }, []);
-  useEffect(() => {
-    if (pages.length > 0) localStorage.setItem(`lastPage-${bookId}`, String(currentPage));
-  }, [currentPage, pages]);
-
-  // X overflow guard
-  useEffect(() => {
-    document.body.style.overflowX = 'hidden';
-    document.documentElement.style.overflowX = 'hidden';
-    return () => {
-      document.body.style.overflowX = '';
-      document.documentElement.style.overflowX = '';
-    };
-  }, []);
-
-  const openReadList = () => {
-    if (document.activeElement?.blur) document.activeElement.blur();
-    setShowReadList(true);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
-      });
-    });
+  const clearAllRead = () => {
+    if (confirm('Barcha o‘qilgan belgilari o‘chirilsinmi?')) setReadPages(new Set());
   };
 
-  /* ====================== HIGHLIGHT ====================== */
-  const HL_KEY = (bid) => `highlights:${bid}`;
+  // ============ HIGHLIGHT (EPUB) ============
   const textWrapRef = useRef(null);
   const [highlights, setHighlights] = useState(() => {
     try {
@@ -196,15 +257,206 @@ const ReaderEpub = () => {
   });
   useEffect(() => {
     localStorage.setItem(HL_KEY(bookId), JSON.stringify(highlights));
-  }, [highlights, bookId]);
+  }, [highlights]);
 
-  const [hlMenu, setHlMenu] = useState({ visible:false, x:0, y:0, mode:'add', targetHighlightId:null });
-  const selectionOffsetsRef = useRef({ start:null, end:null });
+  const [hlMenu, setHlMenu] = useState({
+    visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null
+  });
 
+  useEffect(() => {
+    const onKey = (ev) => {
+      if (ev.key === 'Escape') {
+        setHlMenu(m => ({ ...m, visible: false }));
+        window.getSelection()?.removeAllRanges();
+      }
+    };
+    const onSelectionChange = () => {
+      const sel = window.getSelection?.();
+      if (!sel || sel.isCollapsed) {
+        setHlMenu(m => ({ ...m, visible: false }));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('selectionchange', onSelectionChange);
+    };
+  }, []);
+
+  // DOM ↔ RAW offsetlar (soft hyphen bilan)
+  const getTextOffset = (root, node, nodeOffset) => {
+    let offset = 0;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    let current;
+    while ((current = walker.nextNode())) {
+      if (current === node) return offset + (nodeOffset ?? 0);
+      offset += (current.nodeValue?.length ?? 0);
+    }
+    return offset;
+  };
+  const countSoftHyphens = (s) => (s.match(/\u00AD/g) || []).length;
+  const mapDomOffsetsToRaw = (root, startDom, endDom) => {
+    const domText = root.textContent || '';
+    const shStart = countSoftHyphens(domText.slice(0, startDom));
+    const shEnd   = countSoftHyphens(domText.slice(0, endDom));
+    const startRaw = Math.max(0, startDom - shStart);
+    const endRaw   = Math.max(0, endDom - shEnd);
+    return { start: startRaw, end: endRaw };
+  };
+  const getSelectionOffsetsWithin = (root) => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+
+    const range = sel.getRangeAt(0);
+    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+
+    const domStart = getTextOffset(root, range.startContainer, range.startOffset);
+    const domEnd   = getTextOffset(root, range.endContainer,   range.endOffset);
+    if (domStart === domEnd) return null;
+
+    const minDom = Math.min(domStart, domEnd);
+    const maxDom = Math.max(domStart, domEnd);
+    const { start, end } = mapDomOffsetsToRaw(root, minDom, maxDom);
+
+    return { start, end, rect: range.getBoundingClientRect() };
+  };
+
+  const selectionOffsetsRef = useRef({ start: null, end: null });
+  const addHighlight = (page, start, end, color = '#fff59d') => {
+    let ns = Math.min(start, end);
+    let ne = Math.max(start, end);
+    const text = pages[page] || '';
+    const slice = text.slice(ns, ne);
+    if (!slice || !slice.trim()) {
+      setHlMenu(m => ({ ...m, visible:false }));
+      window.getSelection()?.removeAllRanges();
+      return;
+    }
+    setHighlights(prev => {
+      const keepOther = prev.filter(h => h.page !== page);
+      const samePage  = prev.filter(h => h.page === page);
+      for (const h of samePage) {
+        if (h.start <= ns && ne <= h.end) return prev;
+      }
+      let blocks = [...samePage, { id: 'tmp', page, start: ns, end: ne, color }];
+      const merged = mergePageRanges(blocks.map(({ start, end }) => ({ start, end })));
+      const normalized = merged.map(r => ({
+        id: `${page}-${r.start}-${r.end}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+        page, start: r.start, end: r.end, color
+      }));
+      return [...keepOther, ...normalized];
+    });
+    setHlMenu({ visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null });
+    selectionOffsetsRef.current = { start: null, end: null };
+    window.getSelection()?.removeAllRanges();
+  };
+  const removeHighlight = (id) => {
+    setHighlights(prev => prev.filter(h => h.id !== id));
+    setHlMenu({ visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null });
+  };
+
+  const showAddMenuForSelection = () => {
+    if (!textWrapRef.current) return;
+    const off = getSelectionOffsetsWithin(textWrapRef.current);
+    if (!off) {
+      setHlMenu(m => ({ ...m, visible: false }));
+      return;
+    }
+    selectionOffsetsRef.current = { start: off.start, end: off.end };
+    const pageRect = document.body.getBoundingClientRect();
+    const mx = off.rect.left + off.rect.width / 2 - pageRect.left;
+    const my = off.rect.top - pageRect.top - 8;
+    setHlMenu({
+      visible: true,
+      x: Math.max(12, Math.min(window.innerWidth - 12, mx)),
+      y: Math.max(12, my),
+      mode: 'add',
+      targetHighlightId: null
+    });
+  };
+  const showRemoveMenuFor = (event, id) => {
+    event.stopPropagation();
+    event.preventDefault();
+    const r = event.currentTarget.getBoundingClientRect();
+    const pageRect = document.body.getBoundingClientRect();
+    setHlMenu({
+      visible: true,
+      x: r.left + r.width / 2 - pageRect.left,
+      y: r.top - pageRect.top - 8,
+      mode: 'remove',
+      targetHighlightId: id
+    });
+  };
+
+  // Flash uchun
+  const [flashId, setFlashId] = useState(null);
+
+  // Render with highlights
+const renderWithHighlights = (text, pageIndex) => {
+  // 1) oddiy highlightlar
+  const base = highlights
+    .filter(h => h.page === pageIndex)
+    .map(h => ({ ...h, isFlash: false }));
+
+  // 2) qidiruvdan kelgan vaqtinchalik highlightlar
+  const flashes = (searchFlash.page === pageIndex)
+    ? searchFlash.ranges.map((r, i) => ({
+        id: `sf-${i}`,
+        page: pageIndex,
+        start: r.start,
+        end: r.end,
+        color: '#fff1a6',   // iliq sariq
+        isFlash: true
+      }))
+    : [];
+
+  // 3) ikkalasini birga, tartiblab
+  const pageHls = [...base, ...flashes].sort((a,b) => a.start - b.start || a.end - b.end);
+
+  if (pageHls.length === 0) return hyphenateVisible(text);
+
+  const out = [];
+  let cursor = 0;
+
+  for (const h of pageHls) {
+    let s = Math.max(0, Math.min(text.length, h.start));
+    let e = Math.max(0, Math.min(text.length, h.end));
+    if (e <= cursor) continue;
+    if (s < cursor) s = cursor;
+
+    if (cursor < s) out.push(hyphenateVisible(text.slice(cursor, s)));
+    out.push(
+      <mark
+        key={`${h.id}-${s}-${e}`}
+        data-block-nav="true"
+        onMouseDown={(e)=>e.stopPropagation()}
+        onTouchStart={(e)=>e.stopPropagation()}
+        onClick={(e)=>!h.isFlash && showRemoveMenuFor(e, h.id)}
+        style={{
+          background: h.color || '#fff59d',
+          padding: '0 0.5px',
+          borderRadius: '2px',
+          wordSpacing: `${wordSpacing}px`,
+          letterSpacing: `${letterSpacing}px`,
+          // 🔆 flash bo‘lsa, kuchli “glow”
+          outline: h.isFlash ? '2px solid rgba(251, 191, 36, 0.95)' : 'none',
+          boxShadow: h.isFlash ? '0 0 0 4px rgba(251, 191, 36, 0.25)' : 'none',
+          transition: 'outline 180ms ease, box-shadow 180ms ease',
+          cursor: h.isFlash ? 'default' : 'pointer'
+        }}
+      >
+        {hyphenateVisible(text.slice(s, e))}
+      </mark>
+    );
+    cursor = e;
+  }
+  if (cursor < text.length) out.push(hyphenateVisible(text.slice(cursor)));
+  return out;
+};
+
+  // Range helperlari
   const rangesOverlap = (aStart, aEnd, bStart, bEnd) => !(aEnd <= bStart || bEnd <= aStart);
-  const isCoveredBy = (outerStart, outerEnd, innerStart, innerEnd) =>
-    outerStart <= innerStart && innerEnd <= outerEnd;
-
   const mergePageRanges = (items) => {
     if (!items.length) return [];
     const sorted = [...items].sort((x, y) => x.start - y.start || x.end - y.end);
@@ -224,165 +476,35 @@ const ReaderEpub = () => {
     return out;
   };
 
-  const getTextOffset = (root, node, nodeOffset) => {
-    let offset = 0;
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
-    let current;
-    while ((current = walker.nextNode())) {
-      if (current === node) return offset + nodeOffset;
-      offset += (current.nodeValue?.length ?? 0);
-    }
-    return offset;
-  };
-  const getSelectionOffsetsWithin = (root) => {
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return null;
-    const range = sel.getRangeAt(0);
-    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
-    const start = getTextOffset(root, range.startContainer, range.startOffset);
-    const end   = getTextOffset(root, range.endContainer,   range.endOffset);
-    if (start === end) return null;
-    return { start: Math.min(start, end), end: Math.max(start, end), rect: range.getBoundingClientRect() };
-  };
-
-  const addHighlight = (page, start, end, color = '#fff59d') => {
-    let ns = Math.min(start, end);
-    let ne = Math.max(start, end);
-    const text = pages[page] || '';
-    const slice = text.slice(ns, ne);
-    if (!slice || !slice.trim()) {
-      setHlMenu(m => ({ ...m, visible:false }));
-      window.getSelection()?.removeAllRanges();
-      return;
-    }
-    setHighlights(prev => {
-      const keepOther = prev.filter(h => h.page !== page);
-      const samePage  = prev.filter(h => h.page === page);
-      for (const h of samePage) {
-        if (isCoveredBy(h.start, h.end, ns, ne)) return prev;
-      }
-      const blocks = [...samePage, { id:'tmp', page, start: ns, end: ne, color }];
-      const merged = mergePageRanges(blocks.map(({ start, end }) => ({ start, end })));
-      const normalized = merged.map(r => ({
-        id: `${page}-${r.start}-${r.end}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-        page, start: r.start, end: r.end, color
-      }));
-      return [...keepOther, ...normalized];
-    });
-    setHlMenu({ visible:false, x:0, y:0, mode:'add', targetHighlightId:null });
-    window.getSelection()?.removeAllRanges();
-  };
-  const removeHighlight = (id) => {
-    setHighlights(prev => prev.filter(h => h.id !== id));
-    setHlMenu({ visible:false, x:0, y:0, mode:'add', targetHighlightId:null });
-  };
-
-  const showRemoveMenuFor = (event, id) => {
-    event.stopPropagation();
-    event.preventDefault();
-    const r = event.currentTarget.getBoundingClientRect();
-    const pageRect = document.body.getBoundingClientRect();
-    setHlMenu({
-      visible:true,
-      x: r.left + r.width / 2 - pageRect.left,
-      y: r.top - pageRect.top - 8,
-      mode:'remove',
-      targetHighlightId:id
-    });
-  };
-  const showAddMenuForSelection = () => {
+  // Sahifa balandligi o‘lchash (drag yo‘q paytda)
+  useEffect(() => {
     if (!textWrapRef.current) return;
-    const off = getSelectionOffsetsWithin(textWrapRef.current);
-    if (!off) { setHlMenu(m => ({ ...m, visible:false })); return; }
-    const already = highlights.some(h => h.page === currentPage && isCoveredBy(h.start, h.end, off.start, off.end));
-    if (already) { setHlMenu(m => ({ ...m, visible:false })); return; }
-    selectionOffsetsRef.current = { start: off.start, end: off.end };
-    const pageRect = document.body.getBoundingClientRect();
-    setHlMenu({
-      visible:true,
-      x: Math.max(12, Math.min(window.innerWidth - 12, off.rect.left + off.rect.width / 2)) - pageRect.left,
-      y: Math.max(12, off.rect.top - pageRect.top - 8),
-      mode:'add',
-      targetHighlightId:null
+    const el = textWrapRef.current;
+    const raf = requestAnimationFrame(() => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h && h !== pageBoxH) setPageBoxH(h);
     });
-  };
-
-  const renderWithHighlights = (text, pageIndex) => {
-    const pageHls = highlights
-      .filter(h => h.page === pageIndex)
-      .sort((a, b) => a.start - b.start || a.end - b.end);
-
-    if (pageHls.length === 0) return hyphenateVisible(text);
-
-    const out = [];
-    let cursor = 0;
-
-    for (const h of pageHls) {
-      let s = Math.max(0, Math.min(text.length, h.start));
-      let e = Math.max(0, Math.min(text.length, h.end));
-      if (e <= cursor) continue;
-      if (s < cursor) s = cursor;
-
-      if (cursor < s) out.push(hyphenateVisible(text.slice(cursor, s)));
-      out.push(
-        <mark
-          data-block-nav="true"
-          key={`${h.id}-${s}-${e}`}
-          onMouseDown={(e)=>e.stopPropagation()}
-          onTouchStart={(e)=>e.stopPropagation()}
-          onClick={(e)=>showRemoveMenuFor(e, h.id)}
-          style={{
-            background: h.color || '#fff59d',
-            padding:'0 0.5px',
-            borderRadius:'2px',
-            wordSpacing: `${wordSpacing}px`,
-            letterSpacing: `${letterSpacing}px`,
-          }}
-        >
-          {hyphenateVisible(text.slice(s, e))}
-        </mark>
-      );
-      cursor = e;
-    }
-    if (cursor < text.length) out.push(hyphenateVisible(text.slice(cursor)));
-    return out;
-  };
+    const onResize = () => {
+      if (!textWrapRef.current) return;
+      const h2 = Math.ceil(textWrapRef.current.getBoundingClientRect().height);
+      if (h2 && h2 !== pageBoxH) setPageBoxH(h2);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [currentPage, pages, fontSize, fontFamily, wordSpacing, letterSpacing, pageMargin, flow]);
 
   /* ====================== SWIPE: FOLLOW-FINGER ====================== */
-  const containerRef = useRef(null);
-  const textContainerRef = useRef(null); // faqat PAGE AREA uchun (refni ikki joyga bermaymiz)
+  const rootRef = useRef(null); // konteyner (EPUB dagi nomlashda chalkashmaslik uchun)
+  const containerRef = rootRef; // mavjud Reader.jsx bilan bir xil ishlatamiz
   const startX = useRef(0);
   const startY = useRef(0);
-  const draggingAxis = useRef(null); // 'horizontal' | 'vertical' | null
+  const draggingAxis = useRef(null);
   const pointerActive = useRef(false);
 
-  const [drag, setDrag] = useState({
-    active: false,
-    delta: 0,           // px
-    committing: false,  // transition on
-    target: null,       // index
-    dir: null,          // 'next' | 'prev'
-  });
-
-  // drag paytida page balandligini qotirish
-  const [pageBoxH, setPageBoxH] = useState(null);
-
-  // drag paytida text-selectni bloklash (UX)
-  useEffect(() => {
-    const elHtml = document.documentElement;
-    if (drag.active || drag.committing) {
-      elHtml.style.userSelect = 'none';
-      elHtml.style.webkitUserSelect = 'none';
-    } else {
-      elHtml.style.userSelect = '';
-      elHtml.style.webkitUserSelect = '';
-    }
-    return () => {
-      elHtml.style.userSelect = '';
-      elHtml.style.webkitUserSelect = '';
-    };
-  }, [drag.active, drag.committing]);
-
+  const [drag, setDrag] = useState({ active: false, delta: 0, committing: false, target: null, dir: null });
   const dimsRef = useRef({ w: 0, h: 0 });
   const measure = useCallback(() => {
     const r = containerRef.current?.getBoundingClientRect();
@@ -395,59 +517,26 @@ const ReaderEpub = () => {
     return () => window.removeEventListener('resize', measure);
   }, [measure]);
 
-  // PAGE AREA balandligini drag bo‘lmaganda ham kuzatamiz (responsive)
-  useEffect(() => {
-    if (!textContainerRef.current) return;
-    const el = textContainerRef.current;
-    const raf = requestAnimationFrame(() => {
-      const h = Math.ceil(el.getBoundingClientRect().height);
-      if (h && h !== pageBoxH) setPageBoxH(h);
-    });
-    const onResize = () => {
-      if (!textContainerRef.current) return;
-      const h2 = Math.ceil(textContainerRef.current.getBoundingClientRect().height);
-      if (h2 && h2 !== pageBoxH) setPageBoxH(h2);
-    };
-    window.addEventListener('resize', onResize);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener('resize', onResize);
-    };
-  }, [currentPage, pages, fontSize, fontFamily, wordSpacing, letterSpacing, pageMargin, flow]); // drag yo‘q paytda ham update
-
   const guardBlocked = useCallback(
-    () => showSettings || showJumpModal || showSearch || showReadList || hlMenu.visible,
-    [showSettings, showJumpModal, showSearch, showReadList, hlMenu.visible]
-  );
-  const shouldBlockFromTarget = (t) =>
-    (t?.closest && t.closest('[data-block-nav="true"]')) ? true : false;
+  () => showSettings || showJumpModal || showSearch || showReadList || showHighlights || hlMenu.visible,
+  [showSettings, showJumpModal, showSearch, showReadList, showHighlights, hlMenu.visible]
+);
 
+  const shouldBlockFromTarget = (t) => (t?.closest && t.closest('[data-block-nav="true"]')) ? true : false;
   const navBusy = drag.active || drag.committing;
 
   const begin = useCallback((x, y, targetEl) => {
     if (guardBlocked() || navBusy) return;
     if (shouldBlockFromTarget(targetEl)) return;
-
     measure();
-
-    // drag boshida joriy matn balandligini qotiramiz
-    if (textContainerRef.current) {
-      const h = Math.ceil(textContainerRef.current.getBoundingClientRect().height);
+    if (textWrapRef.current) {
+      const h = Math.ceil(textWrapRef.current.getBoundingClientRect().height);
       if (h) setPageBoxH(h);
     }
-
     startX.current = x;
     startY.current = y;
     draggingAxis.current = null;
-
-    setDrag(d => ({
-      ...d,
-      active: true,
-      delta: 0,
-      committing: false,
-      target: null,
-      dir: null
-    }));
+    setDrag(d => ({ ...d, active: true, delta: 0, committing: false, target: null, dir: null }));
   }, [guardBlocked, navBusy, measure]);
 
   const move = useCallback((x, y) => {
@@ -455,13 +544,11 @@ const ReaderEpub = () => {
     const dx = x - startX.current;
     const dy = y - startY.current;
 
-    // Axisni aniqlash (deadzone ~8px)
     if (!draggingAxis.current) {
       const ax = Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical';
       if ((ax === 'horizontal' && Math.abs(dx) < 8) || (ax === 'vertical' && Math.abs(dy) < 8)) return;
       draggingAxis.current = ax;
     }
-
     if (flow === 'horizontal' && draggingAxis.current !== 'horizontal') return;
     if (flow === 'vertical' && draggingAxis.current !== 'vertical') return;
 
@@ -469,59 +556,47 @@ const ReaderEpub = () => {
     const size = flow === 'horizontal' ? w : h;
     const rawDelta = flow === 'horizontal' ? dx : dy;
 
-    // Target
-    let dir = null;
-    let target = null;
+    let dir = null, target = null;
     if (rawDelta < 0 && currentPage + 1 < pages.length) {
       dir = 'next'; target = currentPage + 1;
     } else if (rawDelta > 0 && currentPage - 1 >= 0) {
       dir = 'prev'; target = currentPage - 1;
     }
-
-    // Rubber-band
     let delta = rawDelta;
     if (target === null) delta = rawDelta * 0.35;
-
-    // Clamp
     const maxShift = size;
     if (delta > maxShift) delta = maxShift;
     if (delta < -maxShift) delta = -maxShift;
-
     setDrag(d => ({ ...d, delta, target, dir }));
   }, [drag.active, drag.committing, flow, currentPage, pages.length]);
 
   const commitOrRevert = useCallback(() => {
     if (!drag.active || drag.committing) return;
-
     const { w, h } = dimsRef.current;
     const size = flow === 'horizontal' ? w : h;
     const threshold = Math.max(60, size * 0.2);
 
-    // Tanlov bo'lsa — menuni ko'rsatamiz (UX)
-    if (textWrapRef.current) {
-      setTimeout(() => showAddMenuForSelection(), 0);
-    }
+    // Tanlov bo‘lsa — menyuni chiqaramiz
+    if (textWrapRef.current) setTimeout(() => showAddMenuForSelection(), 0);
 
     if (drag.target != null && Math.abs(drag.delta) >= threshold) {
-      // commit
       setDrag(d => ({ ...d, committing: true, delta: d.dir === 'next' ? -size : size }));
       const finish = () => {
         setCurrentPage(drag.target);
         setDrag({ active: false, delta: 0, committing: false, target: null, dir: null });
-        setPageBoxH(null); // auto
+        setPageBoxH(null);
       };
       setTimeout(finish, 280);
     } else {
-      // revert
       setDrag(d => ({ ...d, committing: true, delta: 0 }));
       setTimeout(() => {
         setDrag({ active: false, delta: 0, committing: false, target: null, dir: null });
-        setPageBoxH(null); // auto
+        setPageBoxH(null);
       }, 240);
     }
   }, [drag.active, drag.committing, drag.delta, drag.target, drag.dir, flow]);
 
-  // Touch/Pointer handlerlari
+  // Touch/Pointer
   const onTouchStart = useCallback((e) => {
     const t = e.touches?.[0]; if (!t) return;
     begin(t.clientX, t.clientY, e.target);
@@ -545,6 +620,7 @@ const ReaderEpub = () => {
     commitOrRevert();
   }, [commitOrRevert]);
 
+  // Klaviatura
   const jumpInstant = useCallback((toIndex) => {
     if (toIndex < 0 || toIndex >= pages.length || toIndex === currentPage) return;
     const { w, h } = dimsRef.current;
@@ -559,6 +635,7 @@ const ReaderEpub = () => {
   }, [currentPage, pages.length, flow]);
 
   const onKeyDown = useCallback((e) => {
+    const navBusy = drag.active || drag.committing;
     if (guardBlocked() || navBusy) return;
     if (flow === 'horizontal') {
       if (e.key === 'ArrowRight') jumpInstant(currentPage + 1);
@@ -568,7 +645,7 @@ const ReaderEpub = () => {
       if (e.key === 'ArrowUp')    jumpInstant(currentPage - 1);
     }
     if (e.key.toLowerCase() === 'r') markReadUpToCurrent();
-  }, [guardBlocked, navBusy, flow, currentPage, jumpInstant]);
+  }, [guardBlocked, drag.active, drag.committing, flow, currentPage, jumpInstant]);
 
   // Qidiruv
   const makeSnippet = (text, pos, qlen) => {
@@ -592,22 +669,22 @@ const ReaderEpub = () => {
     setResults(found);
     setSearching(false);
   };
-  const jumpToResult = (p) => {
-    setCurrentPage(p);
-    setShowSearch(false);
-    setQuery('');
-    setResults([]);
-  };
+const jumpToResult = (p) => {
+  const q = query.trim();
+  setCurrentPage(p);
+  setShowSearch(false);
+  setQuery('');
+  setResults([]);
 
-  // ======= LOADING =======
-  if (loading) {
-    return (
-      <div style={{ position:'fixed', inset:0, background:'#fff', display:'flex', justifyContent:'center', alignItems:'center', fontSize:18, color:'#444', zIndex:9999 }}>
-        Yuklanmoqda...
-      </div>
-    );
+  if (q) {
+    const ranges = findAllRanges(pages[p] || '', q);
+    setSearchFlash({ page: p, ranges });
+    // 1.8 soniyadan keyin o‘chirib qo‘yamiz
+    setTimeout(() => setSearchFlash({ page: null, ranges: [] }), 1800);
   }
+};
 
+  // UI ranglar
   const isDark = isColorDark(background);
   const textMuted = isDark ? '#c9c9c9' : '#666';
   const cardBg = isDark ? '#121212' : '#fff';
@@ -616,13 +693,12 @@ const ReaderEpub = () => {
   const progressTrack = isDark ? '#333' : '#e5e7eb';
   const progressBar = isDark ? '#f5f5f5' : '#1c1c1c';
   const iconColor = isDark ? '#f5f5f5' : '#111';
+  const readArr = Array.from(readPages);
 
-  // Lang autodetect (kiril/lotin)
   const sample = (pages[currentPage] || '').slice(0, 200);
   const isCyr = /[\u0400-\u04FF]/.test(sample);
   const langAttr = isCyr ? 'uz-Cyrl' : 'uz';
 
-  // Spacing clamp
   const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
   const safeWordSpacing = clamp(wordSpacing, -0.5, 2);
   const safeLetterSpacing = clamp(letterSpacing, -0.5, 1.5);
@@ -653,29 +729,53 @@ const ReaderEpub = () => {
     borderRadius: '12px',
   };
 
-  // Drag transforms
+  // Drag transformlari
   const axis = flow === 'horizontal' ? 'X' : 'Y';
   const { w, h } = dimsRef.current;
   const size = flow === 'horizontal' ? w : h;
+
   let currTransform = `translate${axis}(${drag.active || drag.committing ? drag.delta : 0}px)`;
   let previewTransform = null;
   let previewIndex = drag.target;
-
   if ((drag.active || drag.committing) && drag.target != null) {
     const delta = drag.delta;
-    if (delta < 0) {
-      previewTransform = `translate${axis}(${size + delta}px)`;
-    } else if (delta > 0) {
-      previewTransform = `translate${axis}(${-size + delta}px)`;
-    }
+    if (delta < 0) previewTransform = `translate${axis}(${size + delta}px)`;
+    else if (delta > 0) previewTransform = `translate${axis}(${-size + delta}px)`;
   }
-
   const transitionStyle = drag.committing ? 'transform 260ms ease' : 'none';
   const layerBase = { position: 'absolute', inset: 0, overflow: 'hidden', willChange: 'transform' };
 
+  // Highlights ro‘yxati uchun snippet
+  const makeHlSnippet = (text, start, end, pad = 40) => {
+    const s = Math.max(0, start - pad);
+    const e = Math.min(text.length, end + pad);
+    const raw = text.slice(s, e).replace(/\s+/g, ' ').trim();
+    const head = s > 0 ? '… ' : '';
+    const tail = e < text.length ? ' …' : '';
+    return `${head}${raw}${tail}`;
+  };
+  const preparedHls = (() => {
+    const arr = [...highlights].sort((a,b) => (a.page - b.page) || (a.start - b.start));
+    const mapped = arr.map(h => {
+      const text = pages[h.page] || '';
+      return { ...h, snippet: makeHlSnippet(text, h.start, h.end) };
+    });
+    const q = hlFilter.trim().toLowerCase();
+    if (!q) return mapped;
+    return mapped.filter(x => x.snippet.toLowerCase().includes(q));
+  })();
+
+  if (loading) {
+    return (
+      <div style={{ position:'fixed', inset:0, background:'#fff', display:'flex', justifyContent:'center', alignItems:'center', fontSize:18, color:'#444', zIndex:9999 }}>
+        Yuklanmoqda...
+      </div>
+    );
+  }
+
   return (
     <div
-      ref={containerRef}
+      ref={rootRef}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -703,14 +803,10 @@ const ReaderEpub = () => {
         }
       }}
     >
-      {/* TOP BAR (sticky) */}
+      {/* TOP BAR */}
       <div
         data-block-nav="true"
-        style={{
-          position:'sticky', top:0, zIndex:50,
-          display:'flex', justifyContent:'space-between', alignItems:'center',
-          paddingBottom:8, marginTop:-8,
-        }}
+        style={{ position:'sticky', top:0, zIndex:50, display:'flex', justifyContent:'space-between', alignItems:'center', paddingBottom:8, marginTop:-8 }}
       >
         <button
           data-block-nav="true"
@@ -726,15 +822,25 @@ const ReaderEpub = () => {
           onClick={(e)=>{ e.stopPropagation(); openReadList(); }}
           title="O‘qilgan sahifalar"
           style={{
-            fontSize:12, padding:'6px 10px', borderRadius:999, border:`1px solid ${border}`,
+            fontSize:12, padding:'6px 10px', borderRadius:999, border:`1px solid #e5e7eb`,
             background:isDark?'#1b1b1b':'#f8f8f8', color:isDark?'#f3f4f6':'#111',
-            minWidth:44, textAlign:'center', userSelect:'none', cursor:'pointer', marginLeft:'33px'
+            minWidth:44, textAlign:'center', userSelect:'none', cursor:'pointer', marginLeft:'80px'
           }}
         >
           {progress}%
         </button>
 
         <div data-block-nav="true" style={{ display:'flex', gap:12, alignItems:'center' }}>
+          {/* 🔖 Bookmark (highlights) tugma */}
+          <button
+            data-block-nav="true"
+            onClick={(e)=>{ e.stopPropagation(); setShowHighlights(true); }}
+            title="Belgilangan joylar"
+            style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}
+          >
+            <IoBookmark size={22} color={iconColor} />
+          </button>
+
           <button
             data-block-nav="true"
             onClick={(e)=>{ e.stopPropagation(); setShowSearch(v=>!v); }}
@@ -754,38 +860,34 @@ const ReaderEpub = () => {
         </div>
       </div>
 
-      {/* Progress chiziq */}
+      {/* Progress */}
       <div data-block-nav="true" style={{ height:4, width:'100%', background:progressTrack, borderRadius:999, overflow:'hidden', margin:'10px 0 12px' }}>
         <div style={{ height:'100%', width:`${progress}%`, background:progressBar, borderRadius:999, transition:'width 220ms ease' }} />
       </div>
 
-      {/* HEADER */}
+      {/* HEADER (EPUB: sarlavhani ixtiyoriy o'zgartir) */}
       {currentPage === 0 ? (
         <div style={{ textAlign:'center', marginBottom:'1rem' }}>
-          <h1 style={{ fontSize:'32px', fontWeight:'bold', marginBottom:4, fontFamily }}>Yaxshiyam Sen Borsan</h1>
-          <h2 style={{ fontSize:'18px', color:textMuted, fontFamily }}>1-Bob</h2>
+          <h1 style={{ fontSize:'30px', fontWeight:'bold', marginBottom:4, fontFamily }}>Yaxshiyam Sen Borsan</h1>
+          <h2 style={{ fontSize:'18px', color:textMuted, fontFamily }}>1-bob</h2>
         </div>
       ) : (
         <div style={{ textAlign:'center', fontWeight:600, marginBottom:'1rem', fontSize:'16px', color:textMuted, fontFamily }}>
-          {Math.floor(currentPage / 10) + 1}-Bob
+          {Math.floor(currentPage / 10) + 1} -bob
         </div>
       )}
 
       {/* ======= PAGE AREA ======= */}
       <div
-        ref={textContainerRef}
-        style={{
-          position:'relative',
-          minHeight:'40vh',
-          height: (drag.active || drag.committing) && pageBoxH ? `${pageBoxH}px` : 'auto',
-        }}
+        ref={containerRef}
+        style={{ position:'relative', minHeight:'40vh', height: (drag.active || drag.committing) && pageBoxH ? `${pageBoxH}px` : 'auto' }}
       >
         {/* Normal holat */}
         {!(drag.active || drag.committing) && (
           <pre
             className="reader-text"
             ref={textWrapRef}
-            onMouseUp={(e)=>{ if (textWrapRef.current?.contains(e.target)) showAddMenuForSelection(); }}
+            onMouseUp={(e)=>{ if (textWrapRef.current?.contains(e.target)) showAddMenuForSelection(e); }}
             lang={langAttr}
             style={pageTextStyle}
           >
@@ -796,14 +898,11 @@ const ReaderEpub = () => {
         {/* Drag/Commit holatida: ikki qatlam */}
         {(drag.active || drag.committing) && (
           <>
-            {/* Joriy qatlam */}
             <div style={{ ...layerBase, transform: currTransform, transition: transitionStyle }}>
               <pre className="reader-text" lang={langAttr} style={pageTextStyle} ref={textWrapRef}>
                 {renderWithHighlights(pages[currentPage] || '', currentPage)}
               </pre>
             </div>
-
-            {/* Preview qatlam */}
             {previewIndex != null && (
               <div style={{ ...layerBase, transform: previewTransform, transition: transitionStyle }}>
                 <pre className="reader-text" lang={langAttr} style={pageTextStyle}>
@@ -842,8 +941,8 @@ const ReaderEpub = () => {
             <>
               <button
                 data-block-nav="true"
-                onClick={(e)=>{ 
-                  e.stopPropagation(); 
+                onClick={(e)=>{
+                  e.stopPropagation();
                   const { start, end } = selectionOffsetsRef.current;
                   if (start !== null && end !== null) addHighlight(currentPage, start, end, '#fff59d');
                 }}
@@ -882,15 +981,11 @@ const ReaderEpub = () => {
         </div>
       )}
 
-      {/* "O‘qildi" */}
+      {/* O‘qildi tugmasi */}
       <button
         data-block-nav="true"
         onClick={(e) => { e.stopPropagation(); e.preventDefault(); markReadUpToCurrent(); }}
-        title={
-          allUpToCurrentRead
-            ? 'Bu sahifagacha hammasi allaqachon belgilangan'
-            : `0–${currentPage + 1} o'qildi deb belgilash`
-        }
+        title={ allUpToCurrentRead ? 'Bu sahifagacha hammasi allaqachon belgilangan' : `0–${currentPage + 1} o'qildi deb belgilash` }
         style={{
           position: 'fixed', right: 10, bottom: 18, zIndex: 600,
           padding: '10px 12px', borderRadius: 999, border: `1px solid ${border}`,
@@ -945,6 +1040,7 @@ const ReaderEpub = () => {
           </div>
         </>
       )}
+
       {/* READ LIST */}
       {showReadList && (
         <>
@@ -954,25 +1050,18 @@ const ReaderEpub = () => {
             onPointerDown={(e)=>e.stopPropagation()} onPointerMove={(e)=>e.stopPropagation()} onPointerUp={(e)=>e.stopPropagation()}
             style={{ position:'fixed', bottom:0, left:0, right:0, background:'#fff', borderTopLeftRadius:24, borderTopRightRadius:24, boxShadow:'0 -8px 24px rgba(0,0,0,0.18)', padding:'16px 16px 20px', zIndex:1300, maxHeight:'75vh', overflowY:'auto' }}>
             <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
-              <div style={{ fontWeight:700, fontSize:16, color:'#111' }}>O‘qilganlar ({Array.from(readPages).length} sahifa)</div>
-              <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); if (confirm('Barcha o‘qilgan belgilari o‘chirilsinmi?')) setReadPages(new Set()); }}
+              <div style={{ fontWeight:700, fontSize:16, color:'#111' }}>O‘qilganlar ({readArr.length} sahifa)</div>
+              <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); clearAllRead(); }}
                 style={{ background:'#561818ff', border:'1px solid #eee', borderRadius:10, padding:'6px 10px', fontSize:12, cursor:'pointer' }}>
                 Tozalash
               </button>
             </div>
             <div style={{ fontSize:13, color:'#555', background:'#f7f7f7', border:'1px solid #eee', borderRadius:10, padding:'8px 10px', marginBottom:10, lineHeight:1.5 }}>
-              {Array.from(readPages).length
-                ? Array.from(new Set(Array.from(readPages))).sort((a,b)=>a-b).reduce((acc, n, i, arr) => {
-                    if (i===0) return [[n,n]];
-                    const last = acc[acc.length-1];
-                    if (n === last[1]+1) { last[1]=n; return acc; }
-                    acc.push([n,n]); return acc;
-                  }, []).map(([s,e])=> s===e ? `${s+1}` : `${s+1}–${e+1}`).join(', ')
-                : 'Hali sahifalar belgilanmagan'}
+              {readArr.length ? (()=>{ const a=[...new Set(readArr)].sort((x,y)=>x-y); const out=[]; let s=null,p=null; for(const n of a){ if(s===null){s=p=n; continue;} if(n===p+1){p=n; continue;} out.push(s===p?`${s+1}`:`${s+1}–${p+1}`); s=p=n;} if(s!==null) out.push(s===p?`${s+1}`:`${s+1}–${p+1}`); return out.join(', '); })() : 'Hali sahifalar belgilanmagan'}
             </div>
-            {!!Array.from(readPages).length && (
+            {!!readArr.length && (
               <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-                {Array.from(readPages).sort((a,b)=>a-b).map((p)=>(
+                {readArr.sort((a,b)=>a-b).map((p)=>(
                   <button key={p} data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); setCurrentPage(p); setShowReadList(false); }}
                     style={{ padding:'8px 10px', borderRadius:999, border:'1px solid #e5e7eb', background:'#fafafa', cursor:'pointer', fontSize:12, color:'#111' }}
                     title={`Sahifa ${p+1}`}>{p+1}</button>
@@ -983,7 +1072,97 @@ const ReaderEpub = () => {
         </>
       )}
 
-      {/* JUMP MODAL */}
+      {/* 🔖 HIGHLIGHTS PANEL (Bookmark ro‘yxati) */}
+      {showHighlights && (
+        <>
+          <div
+            className="hl-overlay"
+            data-block-nav="true"
+            onClick={() => setShowHighlights(false)}
+            style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1450 }}
+          />
+          <div
+            className="hl-panel"
+            data-block-nav="true"
+            onClick={(e)=>e.stopPropagation()}
+            onTouchStart={(e)=>e.stopPropagation()}
+            onTouchMove={(e)=>e.stopPropagation()}
+            onTouchEnd={(e)=>e.stopPropagation()}
+            onPointerDown={(e)=>e.stopPropagation()}
+            onPointerMove={(e)=>e.stopPropagation()}
+            onPointerUp={(e)=>e.stopPropagation()}
+            style={{
+              position:'fixed', left:0, right:0, bottom:0, zIndex:1460,
+              background: surface, borderTopLeftRadius:24, borderTopRightRadius:24,
+              boxShadow:'0 -8px 24px rgba(0,0,0,0.18)', padding:'14px 14px 18px',
+              maxHeight:'75vh', overflowY:'auto', WebkitOverflowScrolling:'touch'
+            }}
+          >
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+              <div style={{ fontWeight:700, fontSize:16 }}>{`Belgilangan joylar (${preparedHls.length})`}</div>
+              <button
+                data-block-nav="true"
+                onClick={() => setShowHighlights(false)}
+                style={{ fontSize:12, border:'1px solid #e5e7eb', background:isDark?'#1b1b1b':'#f8f8f8', borderRadius:10, padding:'6px 10px', cursor:'pointer' }}
+              >
+                Yopish
+              </button>
+            </div>
+
+            <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+              <input
+                data-block-nav="true"
+                value={hlFilter}
+                onChange={(e)=>setHlFilter(e.target.value)}
+                placeholder="Belgilanganlardan qidirish…"
+                style={{ flex:1, padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', outline:'none', fontSize:14,
+                         background:isDark?'#1c1c1c':'#fff', color:isDark?'#f5f5f5':'#111' }}
+              />
+              {hlFilter && (
+                <button
+                  data-block-nav="true"
+                  onClick={()=>setHlFilter('')}
+                  style={{ padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', background:'#e5e7eb', cursor:'pointer', fontSize:14 }}
+                >
+                  Toza
+                </button>
+              )}
+            </div>
+
+            {preparedHls.length === 0 ? (
+              <div style={{ fontSize:13, color:'#6b7280' }}>Hali belgilangan joy yo‘q.</div>
+            ) : (
+              <div style={{ display:'grid', gap:8 }}>
+                {preparedHls.map((h) => (
+                  <button
+                    key={h.id}
+                    data-block-nav="true"
+                    onClick={() => {
+                      setShowHighlights(false);
+                      setCurrentPage(h.page);
+                      setTimeout(() => { setFlashId(h.id); setTimeout(()=>setFlashId(null), 900); }, 50);
+                    }}
+                    style={{
+                      textAlign:'left', border:`1px solid ${border}`, background:cardBg,
+                      color:isDark?'#f3f4f6':'#111', borderRadius:12, padding:'10px 12px', cursor:'pointer'
+                    }}
+                    title={`Sahifa ${h.page + 1}`}
+                  >
+                    <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>
+                      Sahifa {h.page + 1}
+                    </div>
+                    <div style={{ fontSize:14, lineHeight:1.5 }}>
+                      {h.snippet}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Jump modal */}
       {showJumpModal && (
         <div onClick={() => setShowJumpModal(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
           <div data-block-nav="true"
@@ -1002,7 +1181,7 @@ const ReaderEpub = () => {
         </div>
       )}
 
-      {/* SETTINGS */}
+      {/* Settings */}
       {showSettings && (
         <>
           <div className="settings-overlay" data-block-nav="true" onClick={() => setShowSettings(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1390 }} />
