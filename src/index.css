@@ -1,7 +1,30 @@
-html, body {
-  height: auto !important;
-  overflow-y: auto !important;
+/* ====== GLOBAL RESET (sodda va xavfsiz) ====== */
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body, #root {
+ margin: 0;
+padding: 0;
+   height: auto;   /* ✅ sahifa tabiiy balandlikda o‘sadi */
+   width: 100%;
 }
+
+body {
+display: block;
+min-height: 100svh;
+  width: 100vw;
+  overflow-x: hidden;
+  background: #0f1115;       /* umumiy fon */
+  color: #e5e7eb;            /* umumiy matn rangi */
+}
+
+/* Hech qaysi global komponentni buzmaslik uchun – shablondagi ranglarni olib tashlaymiz */
+a { color: inherit; text-decoration: none; }
+button { font: inherit; }
+
+/* iOS/WebView scroll “sakrash”ini kamaytirish */
+html { -webkit-text-size-adjust: 100%; }
 
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;

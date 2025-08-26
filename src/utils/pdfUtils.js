@@ -1,6 +1,10 @@
 // src/utils/pdfUtils.js
-import * as pdfjsLib from 'pdfjs-dist';
-pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf-worker.js';
+// ✅ pdfjs-dist v3.x bilan ishlash uchun to'g'ri importlar
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url'; // <- Vite URL import
+
+// ✅ Worker'ni to'g'ri bog'lash (qo'lda yo'l bermaymiz)
+GlobalWorkerOptions.workerSrc = workerUrl;
 
 const ZWSP = '\u200B'; // Zero-width space (ko‘rinmaydi, lekin break beradi)
 
@@ -77,7 +81,13 @@ function paginateByWords(text, wordsPerPage = 150) {
 }
 
 export async function loadFormattedPdfPages(url) {
-  const loadingTask = pdfjsLib.getDocument(url);
+  // ✅ endi worker va main versiyalari mos bo'ladi
+  const loadingTask = getDocument({
+    url,
+    rangeChunkSize: 65536,
+    disableStream: false,
+    disableRange: false,
+  });
   const pdf = await loadingTask.promise;
 
   let fullText = '';
@@ -107,7 +117,7 @@ export async function loadFormattedPdfPages(url) {
       if (lineBuf && !lineBuf.endsWith(' ') && !str.startsWith(' ')) lineBuf += ' ';
       lineBuf += str;
 
-      // Gap tugashi ehtimoli — ozroq konservativ: faqat satr oxiri emas, matn oqimi
+      // Gap tugashi ehtimoli — ozroq konservativ
       if (/[.?!:…]$/.test(str)) {
         fullText += lineBuf.trim() + '\n';
         lineBuf = '';
