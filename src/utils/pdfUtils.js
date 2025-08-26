@@ -129,7 +129,7 @@ export async function loadFormattedPdfPages(url) {
   const withSoftBreaks = softBreakLongTokens(cleaned, 18, 8);
 
   // --- Sahifalash (so‘z bo‘yicha) ---
-  const pages = paginateByWords(withSoftBreaks, 100);
+  const pages = paginateByWords(withSoftBreaks, 150);
 
   return pages;
 }
