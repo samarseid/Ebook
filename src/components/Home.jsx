@@ -5,13 +5,15 @@ import { IoSearch, IoReorderThree, IoSunny, IoMoon } from "react-icons/io5";
 // Lokal coverlar (sening papkang bilan mos)
 import coverIkkiEshik from "../assets/ikki-eshik-orasi.jpg";
 import coverYaxshiyam from "../assets/yaxshiyam-sen-borsan.jpg";
-
+import coverAtomic from "../assets/81ANaVZk5LL._SL1500_.jpg"
+import cover1984 from "../assets/9780452262935_p0_v6_s600x595.jpg"
+import coverSapiens from "../assets/713jIoMO3UL.jpg"
 const BOOKS = [
   {
     id: "test.pdf",
     title: "Икки Эшик Ораси",
     author: "O'. Hoshimov",
-    pages: 380,
+    pages: 639,
     tag: "roman",
     cover: coverIkkiEshik,
     type: "pdf",
@@ -21,19 +23,66 @@ const BOOKS = [
     id: "test2.epub",
     title: "Yaxshiyam Sen Borsan",
     author: "Ulug'bek Hamdam",
-    pages: 210,
+    pages: 300,
     tag: "hikoya",
     cover: coverYaxshiyam,
     type: "epub",
     route: "/reader-epub",
   },
   // demo kartalar (rasm yo‘q bo‘lsa shimmer fon chiqadi)
-  { id: "a", title: "Atomic Habits", author: "James Clear", pages: 320, tag: "self-help", cover: "", type: "pdf", route: "/reader" },
-  { id: "b", title: "1984", author: "George Orwell", pages: 310, tag: "roman", cover: "", type: "pdf", route: "/reader" },
-  { id: "c", title: "Sapiens", author: "Yuval Noah Harari", pages: 410, tag: "history", cover: "", type: "pdf", route: "/reader" },
-  { id: "d", title: "Deep Work", author: "Cal Newport", pages: 280, tag: "productivity", cover: "", type: "pdf", route: "/reader" },
-  { id: "e", title: "Zero to One", author: "Peter Thiel", pages: 210, tag: "startup", cover: "", type: "pdf", route: "/reader" },
-  { id: "f", title: "Clean Code", author: "Robert C. Martin", pages: 430, tag: "programming", cover: "", type: "pdf", route: "/reader" },
+  { id: "atomic-habits.pdf", 
+    title: "Atomic Habits", 
+    author: "James Clear", 
+    pages: 514, tag: "self-help", 
+    cover: coverAtomic, 
+    type: "pdf", 
+    route: "/reader1" 
+  },
+
+  { id: "1984.pdf", 
+    title: "1984", 
+    author: "George Orwell", 
+    pages: 688, 
+    tag: "roman", 
+    cover: cover1984, 
+    type: "pdf", 
+    route: "/reader2" 
+  },
+  { id: "sapiens.pdf", 
+    title: "Sapiens", 
+    author: "Yuval Noah Harari", 
+    pages: 945, tag: "history", 
+    cover: coverSapiens, 
+    type: "pdf", 
+    route: "/reader3" 
+  },
+  { id: "d", 
+    title: "Deep Work", 
+    author: "Cal Newport", 
+    pages: 280, 
+    tag: "productivity", 
+    cover: "", 
+    type: "pdf", 
+    route: "/reader" 
+  },
+  { id: "e", 
+    title: "Zero to One", 
+    author: "Peter Thiel", 
+    pages: 210, 
+    tag: "startup", 
+    cover: "", 
+    type: "pdf", 
+    route: "/reader" 
+  },
+  { id: "f", 
+    title: "Clean Code", 
+    author: "Robert C. Martin", 
+    pages: 430, 
+    tag: "programming", 
+    cover: "", 
+    type: "pdf", 
+    route: "/reader" 
+  },
 ];
 
 export default function Home() {
