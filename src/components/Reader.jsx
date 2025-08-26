@@ -10,9 +10,13 @@ import './reader.css';
 const HL_KEY = (bookId) => `highlights:${bookId}`;
 
 /* ================= HY­PHEN FALLBACK (lotin + kiril) ================= */
+
 const VOWELS_RE = /[aeiouаеёиоуыэюяAEIOUАЕЁИОУЫЭЮЯ]/;
+
 function insertSoftHyphens(word) {
-  const MIN_LEN = 12;
+  const MIN_LEN = 8;
+  const MIN_CHUNK = 4;
+  const MAX_CHUNK = 7;
   if (!word || word.length < MIN_LEN) return word;
 
   const parts = [];
@@ -21,26 +25,26 @@ function insertSoftHyphens(word) {
 
   for (let i = 0; i < word.length; i++) {
     buf += word[i];
-    const next = word[i + 1] || '';
-    const change = (isV(word[i]) && !isV(next)) || (!isV(word[i]) && isV(next));
-    const longEnough = buf.length >= 6;
-    const tooLong = buf.length >= 8;
-    if ((longEnough && change) || tooLong) {
+    const prev = word[i - 1] || '';
+    const change = (isV(prev) && !isV(word[i])) || (!isV(prev) && isV(word[i]));
+    const dblCons = !isV(prev) && !isV(word[i]);
+    const longEnough = buf.length >= MIN_CHUNK;
+    const tooLong = buf.length >= MAX_CHUNK;
+    if ((longEnough && (change || dblCons)) || tooLong) {
       parts.push(buf);
       buf = '';
     }
   }
   if (buf) parts.push(buf);
-  return parts.join('\u00AD'); // soft hyphen
+  return parts.join('\u00AD');
 }
+
 function hyphenateVisible(s) {
   if (!s) return s;
   try {
-    // Unicode (lotin+kiril) so‘zlar: 12+ belgida bo‘linadi
-    return s.replace(/[\p{L}\p{M}]{12,}/gu, (w) => insertSoftHyphens(w));
+    return s.replace(/[\p{L}\p{M}]{8,}/gu, (w) => insertSoftHyphens(w));
   } catch {
-    // Juda eski dvigatel bo‘lsa
-    return s.replace(/\w{12,}/g, (w) => insertSoftHyphens(w));
+    return s.replace(/\w{8,}/g, (w) => insertSoftHyphens(w));
   }
 }
 /* ==================================================================== */
@@ -49,7 +53,7 @@ const Reader = () => {
   const { user } = useTelegram();
   const navigate = useNavigate();
 
-  const bookId = 'test.pdf'; // bu kitob nomi
+  const bookId = 'test.pdf';
 
   const [pages, setPages] = useState([]);
   const [currentPage, setCurrentPage] = useState(0);
@@ -57,7 +61,7 @@ const Reader = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showJumpModal, setShowJumpModal] = useState(false);
   const [jumpInput, setJumpInput] = useState('');
-  const [showReadList, setShowReadList] = useState(false); // O‘qilganlar ro‘yxati
+  const [showReadList, setShowReadList] = useState(false);
 
   // UI sozlamalar
   const [fontSize, setFontSize] = useState(() => {
@@ -75,24 +79,39 @@ const Reader = () => {
     return saved ? parseInt(saved, 10) : 100;
   });
 
-  // oqim (SettingsPanel bilan bog‘lanadi)
+  // Tipografiya
+  const [pageMargin, setPageMargin] = useState(() => {
+    const v = localStorage.getItem('pageMargin');
+    return v !== null ? Number(v) : 24;
+  });
+  const [wordSpacing, setWordSpacing] = useState(() => {
+    const v = localStorage.getItem('wordSpacing');
+    return v !== null ? Number(v) : 0;
+  });
+  const [letterSpacing, setLetterSpacing] = useState(() => {
+    const v = localStorage.getItem('letterSpacing');
+    return v !== null ? Number(v) : 0;
+  });
+
+  // Oqim (horizontal | vertical)
   const [flow, setFlow] = useState(() => {
     const saved = localStorage.getItem('readFlow');
     return saved === 'vertical' || saved === 'horizontal' ? saved : 'horizontal';
   });
   useEffect(() => { localStorage.setItem('readFlow', flow); }, [flow]);
 
-  // O'qilgan sahifalar (Set) + persist
+  // O‘qilgan sahifalar
   const [readPages, setReadPages] = useState(() => {
     try {
       const saved = localStorage.getItem(`read-${bookId}`);
       if (!saved) return new Set();
       const arr = JSON.parse(saved);
       return new Set(Array.isArray(arr) ? arr : []);
-    } catch {
-      return new Set();
-    }
+    } catch { return new Set(); }
   });
+  useEffect(() => {
+    localStorage.setItem(`read-${bookId}`, JSON.stringify(Array.from(readPages)));
+  }, [readPages, bookId]);
 
   const openReadList = () => {
     if (document.activeElement?.blur) document.activeElement.blur();
@@ -107,17 +126,19 @@ const Reader = () => {
   const totalPages = pages.length;
   const progress = totalPages ? Math.floor((readPages.size / totalPages) * 100) : 0;
   const isCurrentRead = readPages.has(currentPage);
-
-  const toggleReadCurrent = () => {
+  const markReadUpToCurrent = () => {
     setReadPages(prev => {
       const next = new Set(prev);
-      if (next.has(currentPage)) next.delete(currentPage);
-      else next.add(currentPage);
+      for (let i = 0; i <= currentPage; i++) next.add(i);
       return next;
     });
   };
+  const allUpToCurrentRead = (() => {
+    for (let i = 0; i <= currentPage; i++) if (!readPages.has(i)) return false;
+    return true;
+  })();
 
-  // HEX rang yorug' (light) yoki qorong'i (dark)
+  // Rang yorug‘-qorong‘i
   const isColorDark = (hex) => {
     try {
       if (!hex) return false;
@@ -135,17 +156,16 @@ const Reader = () => {
     if (confirm('Barcha o‘qilgan belgilari o‘chirilsinmi?')) setReadPages(new Set());
   };
 
-  useEffect(() => {
-    localStorage.setItem(`read-${bookId}`, JSON.stringify(Array.from(readPages)));
-  }, [readPages, bookId]);
-
-  // 🔍 Qidiruv holatlari
+  // Qidiruv
   const [showSearch, setShowSearch] = useState(false);
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState([]); // [{ page, snippet }]
-  useEffect(() => { if (showSettings) setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50); }, [showSettings]); useEffect(() => { if (showSearch) setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50); }, [showSearch]);
-  // Sozlamalarni yuklash/saqlash
+  const [results, setResults] = useState([]);
+
+  useEffect(() => { if (showSettings) setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50); }, [showSettings]);
+  useEffect(() => { if (showSearch)   setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50); }, [showSearch]);
+
+  // Sozlamalarni load/save
   useEffect(() => {
     const s1 = localStorage.getItem('fontSize');
     const s2 = localStorage.getItem('fontFamily');
@@ -162,6 +182,10 @@ const Reader = () => {
     localStorage.setItem('background', background);
     localStorage.setItem('brightness', String(brightness));
   }, [fontSize, fontFamily, background, brightness]);
+
+  useEffect(() => { localStorage.setItem('pageMargin', String(pageMargin)); }, [pageMargin]);
+  useEffect(() => { localStorage.setItem('wordSpacing', String(wordSpacing)); }, [wordSpacing]);
+  useEffect(() => { localStorage.setItem('letterSpacing', String(letterSpacing)); }, [letterSpacing]);
 
   // Sahifalarni yuklash + lastPage
   useEffect(() => {
@@ -191,62 +215,70 @@ const Reader = () => {
     };
   }, []);
 
-  // ======== HIGHLIGHT (YORITMA) ========
-  const textWrapRef = useRef(null); // <pre> ichidagi text container
+  // ======== HIGHLIGHT ========
+  const textWrapRef = useRef(null);
   const [highlights, setHighlights] = useState(() => {
     try {
       const raw = localStorage.getItem(HL_KEY(bookId));
       return raw ? JSON.parse(raw) : [];
     } catch { return []; }
   });
-
   useEffect(() => {
     localStorage.setItem(HL_KEY(bookId), JSON.stringify(highlights));
   }, [highlights]);
 
-  // Tanlov menyusi
   const [hlMenu, setHlMenu] = useState({
     visible: false, x: 0, y: 0,
-    mode: 'add',           // add | remove
+    mode: 'add',
     targetHighlightId: null
   });
 
-  // Tanlangan diapazon (offsetlar)
-  const selectionOffsetsRef = useRef({ start: null, end: null });
+  useEffect(() => {
+    const onKey = (ev) => {
+      if (ev.key === 'Escape') {
+        setHlMenu(m => ({ ...m, visible: false }));
+        window.getSelection()?.removeAllRanges();
+      }
+    };
+    const onSelectionChange = () => {
+      const sel = window.getSelection?.();
+      if (!sel || sel.isCollapsed) {
+        setHlMenu(m => ({ ...m, visible: false }));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('selectionchange', onSelectionChange);
+    };
+  }, []);
 
-  // Matn tugunlari bo‘yicha global offset hisoblash
+  const selectionOffsetsRef = useRef({ start: null, end: null });
   const getTextOffset = (root, node, nodeOffset) => {
     let offset = 0;
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     let current;
     while ((current = walker.nextNode())) {
-      if (current === node) {
-        return offset + nodeOffset;
-      }
+      if (current === node) return offset + nodeOffset;
       offset += current.nodeValue.length;
     }
     return offset;
   };
-
   const getSelectionOffsetsWithin = (root) => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return null;
-
     const range = sel.getRangeAt(0);
     if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
-
     const start = getTextOffset(root, range.startContainer, range.startOffset);
     const end = getTextOffset(root, range.endContainer, range.endOffset);
     if (start === end) return null;
-
     return { start: Math.min(start, end), end: Math.max(start, end), rect: range.getBoundingClientRect() };
   };
 
-  // Yoritmani qo‘shish
   const addHighlight = (page, start, end, color = '#fff59d') => {
     let ns = Math.min(start, end);
     let ne = Math.max(start, end);
-
     const text = pages[page] || '';
     const slice = text.slice(ns, ne);
     if (!slice || !slice.trim()) {
@@ -254,52 +286,36 @@ const Reader = () => {
       window.getSelection()?.removeAllRanges();
       return;
     }
-
     setHighlights(prev => {
       const keepOther = prev.filter(h => h.page !== page);
       const samePage  = prev.filter(h => h.page === page);
-
       for (const h of samePage) {
-        if (isCoveredBy(h.start, h.end, ns, ne)) return prev;
+        if (h.start <= ns && ne <= h.end) return prev;
       }
-
-      let blocks = [...samePage];
-      blocks.push({ id: 'tmp', page, start: ns, end: ne, color });
-
-      const merged = mergePageRanges(blocks.map(({ start, end }) => ({ start, end })));
+      const blocks = [...samePage, { start: ns, end: ne }];
+      const merged = mergePageRanges(blocks);
       const normalized = merged.map(r => ({
         id: `${page}-${r.start}-${r.end}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
         page, start: r.start, end: r.end, color
       }));
-
       return [...keepOther, ...normalized];
     });
-
     setHlMenu({ visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null });
     selectionOffsetsRef.current = { start: null, end: null };
     window.getSelection()?.removeAllRanges();
   };
-
-  // Yoritmani o‘chirish
   const removeHighlight = (id) => {
     setHighlights(prev => prev.filter(h => h.id !== id));
     setHlMenu({ visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null });
   };
-
-  // Tanlashdan keyin menyuni ko‘rsatish
   const showAddMenuForSelection = (evt) => {
     if (!textWrapRef.current) return;
     const off = getSelectionOffsetsWithin(textWrapRef.current);
-    if (!off) {
-      setHlMenu(m => ({ ...m, visible: false }));
-      return;
-    }
+    if (!off) { setHlMenu(m => ({ ...m, visible: false })); return; }
     selectionOffsetsRef.current = { start: off.start, end: off.end };
-
     const pageRect = document.body.getBoundingClientRect();
     const mx = off.rect.left + off.rect.width / 2 - pageRect.left;
     const my = off.rect.top - pageRect.top - 8;
-
     setHlMenu({
       visible: true,
       x: Math.max(12, Math.min(window.innerWidth - 12, mx)),
@@ -308,8 +324,6 @@ const Reader = () => {
       targetHighlightId: null
     });
   };
-
-  // Yoritilgan bo‘lakni bosganda (remove menyusi)
   const showRemoveMenuFor = (event, id) => {
     event.stopPropagation();
     event.preventDefault();
@@ -323,50 +337,44 @@ const Reader = () => {
       targetHighlightId: id
     });
   };
-
-  // Sahifa matnini highlight bilan render qilish (SOFT-HYPHEN qo'llangan)
   const renderWithHighlights = (text, pageIndex) => {
     const pageHls = highlights
       .filter(h => h.page === pageIndex)
       .sort((a, b) => a.start - b.start || a.end - b.end);
-
     if (pageHls.length === 0) return hyphenateVisible(text);
-
     const out = [];
     let cursor = 0;
-
     for (const h of pageHls) {
       let s = Math.max(0, Math.min(text.length, h.start));
       let e = Math.max(0, Math.min(text.length, h.end));
-
       if (e <= cursor) continue;
       if (s < cursor) s = cursor;
-
       if (cursor < s) out.push(hyphenateVisible(text.slice(cursor, s)));
       out.push(
         <mark
+          data-hl-menu
           key={`${h.id}-${s}-${e}`}
           data-block-nav="true"
           onMouseDown={(e)=>e.stopPropagation()}
           onTouchStart={(e)=>e.stopPropagation()}
           onClick={(e) => showRemoveMenuFor(e, h.id)}
-          style={{ background: h.color || '#fff59d', padding: '0 0.5px', borderRadius: '2px' }}
+          style={{
+            background: h.color || '#fff59d',
+            padding: '0 0.5px',
+            borderRadius: '2px',
+            wordSpacing: `${wordSpacing}px`,
+            letterSpacing: `${letterSpacing}px`,
+          }}
         >
           {hyphenateVisible(text.slice(s, e))}
         </mark>
       );
       cursor = e;
     }
-
     if (cursor < text.length) out.push(hyphenateVisible(text.slice(cursor)));
     return out;
   };
-
-  // ======== HIGHLIGHT HELPERS ========
   const rangesOverlap = (aStart, aEnd, bStart, bEnd) => !(aEnd <= bStart || bEnd <= aStart);
-  const isCoveredBy = (outerStart, outerEnd, innerStart, innerEnd) =>
-    outerStart <= innerStart && innerEnd <= outerEnd;
-
   const mergePageRanges = (items) => {
     if (!items.length) return [];
     const sorted = [...items].sort((x, y) => x.start - y.start || x.end - y.end);
@@ -377,19 +385,38 @@ const Reader = () => {
       if (rangesOverlap(cur.start, cur.end, h.start, h.end) || cur.end === h.start) {
         cur.start = Math.min(cur.start, h.start);
         cur.end   = Math.max(cur.end,   h.end);
-      } else {
-        out.push(cur);
-        cur = { ...h };
-      }
+      } else { out.push(cur); cur = { ...h }; }
     }
     out.push(cur);
     return out;
   };
 
-  // ======== PAGE SLIDE ANIMATSIYASI ========
-  const threshold = 50;
+  // ======== PAGE SLIDE + DRAG (Pointer Events, barqaror) ========
+  const threshold = 50;          // fallback tap-swipe
+  const gestureStartThreshold = 12;
+  const commitRatio = 0.28;
+  const velocityCommit = 0.6;    // px/ms
+
   const startX = useRef(0);
   const startY = useRef(0);
+  const lastX = useRef(0);
+  const lastY = useRef(0);
+  const lastTs = useRef(0);
+
+  const isPointerDownRef = useRef(false);
+  const pointerIdRef = useRef(null);
+
+  const containerRef = useRef(null);
+  const [viewport, setViewport] = useState({ w: 0, h: 0 });
+  const measure = useCallback(() => {
+    const r = containerRef.current?.getBoundingClientRect();
+    setViewport({ w: r?.width || window.innerWidth, h: r?.height || Math.max(360, window.innerHeight * 0.6) });
+  }, []);
+  useEffect(() => {
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [measure]);
 
   const guardBlocked = useCallback(
     () => showSettings || showJumpModal || showSearch || showReadList || hlMenu.visible,
@@ -399,104 +426,160 @@ const Reader = () => {
 
   const [anim, setAnim] = useState({
     active: false,
-    stage: 'idle',            // 'idle' | 'prep' | 'run'
-    dir: 'next',              // 'next' | 'prev'
+    stage: 'idle',     // 'idle' | 'drag' | 'run'
+    dir: 'next',       // 'next' | 'prev'
     flowForAnim: 'horizontal',
-    target: null
+    target: null,
+    dragPx: 0,
+    commit: false
   });
 
-  const startAnim = (targetIndex, dir) => {
+  const axisSize = (anim.flowForAnim === 'horizontal' ? viewport.w : viewport.h) || (flow === 'horizontal' ? window.innerWidth : window.innerHeight);
+
+  const startAnimProgrammatic = (targetIndex, dir) => {
     if (anim.active) return;
     if (targetIndex < 0 || targetIndex >= pages.length || targetIndex === currentPage) return;
-    setAnim({ active: true, stage: 'prep', dir, flowForAnim: flow, target: targetIndex });
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      setAnim(a => ({ ...a, stage: 'run' }));
-    }));
+    const sign = dir === 'next' ? -1 : 1;
+    setAnim({ active: true, stage: 'run', dir, flowForAnim: flow, target: targetIndex, dragPx: sign * axisSize, commit: true });
   };
 
-  const onTouchStart = useCallback((e) => {
-    if (guardBlocked() || anim.active) return;
-    if (shouldBlockFromTarget(e.target)) return;
-    const t = e.touches?.[0]; if (!t) return;
-    startX.current = t.clientX; startY.current = t.clientY;
-  }, [guardBlocked, anim.active]);
-
-  const onTouchEnd = useCallback((e) => {
-    if (textWrapRef.current && textWrapRef.current.contains(e.target)) {
-      setTimeout(() => showAddMenuForSelection(e), 0);
-    }
-    if (guardBlocked() || anim.active) return;
-    if (shouldBlockFromTarget(e.target)) return;
-    const c = e.changedTouches?.[0]; if (!c) return;
-    const dx = c.clientX - startX.current;
-    const dy = c.clientY - startY.current;
-
+  const beginDragIfNeeded = (dx, dy) => {
+    if (anim.active) return;
+    const ax = Math.abs(dx), ay = Math.abs(dy);
     if (flow === 'horizontal') {
-      if (Math.abs(dx) >= threshold && Math.abs(dx) > Math.abs(dy)) {
-        if (dx < 0) startAnim(currentPage + 1, 'next');
-        else startAnim(currentPage - 1, 'prev');
+      if (ax > gestureStartThreshold && ax > ay) {
+        const dir = dx < 0 ? 'next' : 'prev';
+        const target = dir === 'next' ? currentPage + 1 : currentPage - 1;
+        setAnim({
+          active: true,
+          stage: 'drag',
+          dir,
+          flowForAnim: flow,
+          target: (target >=0 && target < pages.length) ? target : null,
+          dragPx: dx,
+          commit: false
+        });
       }
     } else {
-      if (Math.abs(dy) >= threshold && Math.abs(dy) > Math.abs(dx)) {
-        if (dy < 0) startAnim(currentPage + 1, 'next');
-        else startAnim(currentPage - 1, 'prev');
+      if (ay > gestureStartThreshold && ay > ax) {
+        const dir = dy < 0 ? 'next' : 'prev';
+        const target = dir === 'next' ? currentPage + 1 : currentPage - 1;
+        setAnim({
+          active: true,
+          stage: 'drag',
+          dir,
+          flowForAnim: flow,
+          target: (target >=0 && target < pages.length) ? target : null,
+          dragPx: dy,
+          commit: false
+        });
       }
     }
-  }, [guardBlocked, flow, currentPage, anim.active, pages.length]);
+  };
 
-  const downX = useRef(0), downY = useRef(0);
   const onPointerDown = useCallback((e) => {
     if (guardBlocked() || anim.active) return;
     if (shouldBlockFromTarget(e.target)) return;
-    downX.current = e.clientX; downY.current = e.clientY;
+    if (e.pointerType === 'mouse' && e.button !== 0) return; // faqat left
+    isPointerDownRef.current = true;
+    pointerIdRef.current = e.pointerId;
+    containerRef.current?.setPointerCapture?.(e.pointerId);
+    startX.current = lastX.current = e.clientX;
+    startY.current = lastY.current = e.clientY;
+    lastTs.current = performance.now();
   }, [guardBlocked, anim.active]);
 
+  const onPointerMove = useCallback((e) => {
+    if (guardBlocked()) return;
+    if (!isPointerDownRef.current) return;
+
+    const dx = e.clientX - startX.current;
+    const dy = e.clientY - startY.current;
+
+    if (!anim.active) {
+      beginDragIfNeeded(dx, dy);
+    } else if (anim.stage === 'drag') {
+      const raw = (anim.flowForAnim === 'horizontal') ? dx : dy;
+      const edge = anim.target == null;
+      const damped = edge ? raw * 0.33 : raw;
+      setAnim(a => ({ ...a, dragPx: damped }));
+    }
+
+    lastX.current = e.clientX; lastY.current = e.clientY; lastTs.current = performance.now();
+  }, [guardBlocked, anim.active, anim.stage, anim.flowForAnim, anim.target]);
+
+  const settle = (commit) => {
+    if (!anim.active) return;
+    if (anim.stage === 'drag') {
+      setAnim(a => ({ ...a, stage: 'run', commit }));
+    }
+  };
+
   const onPointerUp = useCallback((e) => {
+    // highlight menyusi (pointer up’da tekshirib)
     if (textWrapRef.current && textWrapRef.current.contains(e.target)) {
       setTimeout(() => showAddMenuForSelection(e), 0);
     }
-    if (guardBlocked() || anim.active) return;
-    if (shouldBlockFromTarget(e.target)) return;
-    const dx = e.clientX - downX.current;
-    const dy = e.clientY - downY.current;
 
-    if (flow === 'horizontal') {
-      if (Math.abs(dx) >= threshold && Math.abs(dx) > Math.abs(dy)) {
-        if (dx < 0) startAnim(currentPage + 1, 'next');
-        else startAnim(currentPage - 1, 'prev');
+    if (!isPointerDownRef.current) return;
+    isPointerDownRef.current = false;
+    try { containerRef.current?.releasePointerCapture?.(pointerIdRef.current); } catch {}
+
+    if (guardBlocked()) return;
+
+    if (!anim.active) {
+      // fallback tap-swipe
+      const dx = e.clientX - startX.current;
+      const dy = e.clientY - startY.current;
+      if (flow === 'horizontal') {
+        if (Math.abs(dx) >= threshold && Math.abs(dx) > Math.abs(dy)) {
+          if (dx < 0) startAnimProgrammatic(currentPage + 1, 'next');
+          else startAnimProgrammatic(currentPage - 1, 'prev');
+        }
+      } else {
+        if (Math.abs(dy) >= threshold && Math.abs(dy) > Math.abs(dx)) {
+          if (dy < 0) startAnimProgrammatic(currentPage + 1, 'next');
+          else startAnimProgrammatic(currentPage - 1, 'prev');
+        }
       }
-    } else {
-      if (Math.abs(dy) >= threshold && Math.abs(dy) > Math.abs(dx)) {
-        if (dy < 0) startAnim(currentPage + 1, 'next');
-        else startAnim(currentPage - 1, 'prev');
-      }
+      return;
     }
-  }, [guardBlocked, flow, currentPage, anim.active]);
+
+    if (anim.stage === 'drag') {
+      const now = performance.now();
+      const dt = Math.max(1, now - lastTs.current);
+      const velPx = (flow === 'horizontal' ? (e.clientX - lastX.current) : (e.clientY - lastY.current)) / dt; // px/ms
+      const dist = Math.abs(anim.dragPx);
+      const commit = (anim.target != null) && (dist > axisSize * commitRatio || Math.abs(velPx) > velocityCommit);
+      settle(commit);
+    }
+  }, [guardBlocked, anim.active, anim.stage, anim.dragPx, anim.target, axisSize, flow, currentPage]);
+
+  const onPointerCancel = useCallback(() => {
+    if (!isPointerDownRef.current) return;
+    isPointerDownRef.current = false;
+    if (anim.active && anim.stage === 'drag') settle(false);
+  }, [anim.active, anim.stage]);
 
   const onKeyDown = useCallback((e) => {
     if (guardBlocked() || anim.active) return;
     if (flow === 'horizontal') {
-      if (e.key === 'ArrowRight') startAnim(currentPage + 1, 'next');
-      if (e.key === 'ArrowLeft')  startAnim(currentPage - 1, 'prev');
+      if (e.key === 'ArrowRight') startAnimProgrammatic(currentPage + 1, 'next');
+      if (e.key === 'ArrowLeft')  startAnimProgrammatic(currentPage - 1, 'prev');
     } else {
-      if (e.key === 'ArrowDown')  startAnim(currentPage + 1, 'next');
-      if (e.key === 'ArrowUp')    startAnim(currentPage - 1, 'prev');
+      if (e.key === 'ArrowDown')  startAnimProgrammatic(currentPage + 1, 'next');
+      if (e.key === 'ArrowUp')    startAnimProgrammatic(currentPage - 1, 'prev');
     }
-    if (e.key.toLowerCase() === 'r') toggleReadCurrent();
+    if (e.key.toLowerCase() === 'r') markReadUpToCurrent();
   }, [guardBlocked, flow, currentPage, anim.active]);
 
   const finishAnim = useCallback(() => {
     if (!anim.active) return;
-    setCurrentPage(anim.target);
-    setAnim({ active: false, stage: 'idle', dir: 'next', flowForAnim: flow, target: null });
+    if (anim.stage === 'run') {
+      if (anim.commit && anim.target != null) setCurrentPage(anim.target);
+      setAnim({ active: false, stage: 'idle', dir: 'next', flowForAnim: flow, target: null, dragPx: 0, commit: false });
+    }
   }, [anim, flow]);
-
-  const makeSnippet = (text, pos, qlen) => {
-    const start = Math.max(0, pos - 40);
-    const end = Math.min(text.length, pos + qlen + 40);
-    const raw = text.slice(start, end).replace(/\s+/g, ' ').trim();
-    return `${start > 0 ? '… ' : ''}${raw}${end < text.length ? ' …' : ''}`;
-  };
 
   const runSearch = () => {
     const q = query.trim();
@@ -513,14 +596,18 @@ const Reader = () => {
     setResults(found);
     setSearching(false);
   };
-
+  const makeSnippet = (text, pos, qlen) => {
+    const start = Math.max(0, pos - 40);
+    const end = Math.min(text.length, pos + qlen + 40);
+    const raw = text.slice(start, end).replace(/\s+/g, ' ').trim();
+    return `${start > 0 ? '… ' : ''}${raw}${end < text.length ? ' …' : ''}`;
+  };
   const jumpToResult = (p) => {
     setCurrentPage(p);
     setShowSearch(false);
     setQuery('');
     setResults([]);
   };
-
   const compactRanges = (arr) => {
     const a = [...new Set(arr)].sort((x, y) => x - y);
     const out = [];
@@ -545,7 +632,7 @@ const Reader = () => {
 
   const isDark = isColorDark(background);
   const textMuted = isDark ? '#c9c9c9' : '#666';
-  const cardBg = isDark ? '#121212' : '#fff';
+  const cardBg = isDark ? '#111111' : '#ffffff'; // qoladi (modallar uchun), lekin page kartasi TRANSPARENT bo‘ladi
   const surface = isDark ? '#2a2a2a' : '#ffffff';
   const border = '#e5e7eb';
   const progressTrack = isDark ? '#333' : '#e5e7eb';
@@ -553,17 +640,130 @@ const Reader = () => {
   const iconColor = isDark ? '#f5f5f5' : '#111';
   const readArr = Array.from(readPages);
 
-  const axis = anim.flowForAnim === 'horizontal' ? 'X' : 'Y';
-  const nextFrom = (anim.dir === 'next') ? '100%' : '-100%';
-  const currTo  = (anim.dir === 'next') ? '-100%' : '100%';
-  const layerBase = { position: 'absolute', inset: 0, overflow: 'hidden', willChange: 'transform' };
+  // Til auto
+  const sample = (pages[currentPage] || '').slice(0, 200);
+  const isCyr = /[\u0400-\u04FF]/.test(sample);
+  const langAttr = isCyr ? 'uz-Cyrl' : 'uz';
+
+  // clamp
+  const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+  const safeWordSpacing = clamp(wordSpacing, -0.5, 2);
+  const safeLetterSpacing = clamp(letterSpacing, -0.5, 1.5);
+  const safePageMargin = clamp(pageMargin, 0, 64);
+
+  // Matn style (qora fon yo‘q!)
+  const pageTextStyle = {
+    whiteSpace: 'pre-wrap',
+    lineHeight: '1.8',
+    fontSize: `${fontSize}px`,
+    fontFamily: fontFamily,
+    margin: '0 auto',
+    maxWidth: 'clamp(52ch, 92vw, 74ch)',
+    padding: `${safePageMargin}px`,
+    wordSpacing: `${safeWordSpacing}px`,
+    letterSpacing: `${safeLetterSpacing}px`,
+    overflowX: 'hidden',
+    maxInlineSize: '100%',
+    userSelect: 'text',
+    textAlign: 'justify',
+    textJustify: 'inter-character',
+    hyphens: 'auto',
+    WebkitHyphens: 'auto',
+    overflowWrap: 'break-word',
+    wordBreak: 'normal',
+    fontKerning: 'normal',
+    textWrap: 'pretty',
+    backgroundColor: 'transparent', // <<<
+    borderRadius: '12px',
+  };
+
+  // Sahifa “kartasi” – TRANSPARENT, yumshoq soya saqladik juda past darajada
+  const pageCardStyle = {
+    margin: '0 auto 3.6rem',
+    padding: 0,
+    background: 'transparent', // <<<< qora fon olib tashlandi
+    borderRadius: 16,
+    boxShadow: isDark
+      ? '0 10px 28px rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.18)'
+      : '0 12px 30px rgba(0,0,0,0.10), 0 1px 3px rgba(0,0,0,0.06)',
+    overflow: 'hidden',
+  };
+
+  // Edge gradient (faqat o‘tishda, juda nozik)
+  const EdgeShadow = ({ flowAxis, side, opacity }) => {
+    const common = {
+      position: 'absolute',
+      pointerEvents: 'none',
+      zIndex: 3,
+      opacity,
+      transition: 'opacity 120ms ease',
+      mixBlendMode: isDark ? 'screen' : 'multiply',
+    };
+    if (flowAxis === 'horizontal') {
+      const w = 36;
+      if (side === 'left') {
+        return <div style={{ ...common, top: 0, bottom: 0, left: 0, width: w, background: 'linear-gradient(to right, rgba(0,0,0,0.22), rgba(0,0,0,0))' }} />;
+      }
+      return <div style={{ ...common, top: 0, bottom: 0, right: 0, width: 36, background: 'linear-gradient(to left, rgba(0,0,0,0.22), rgba(0,0,0,0))' }} />;
+    } else {
+      const h = 36;
+      if (side === 'top') {
+        return <div style={{ ...common, left: 0, right: 0, top: 0, height: h, background: 'linear-gradient(to bottom, rgba(0,0,0,0.22), rgba(0,0,0,0))' }} />;
+      }
+      return <div style={{ ...common, left: 0, right: 0, bottom: 0, height: 36, background: 'linear-gradient(to top, rgba(0,0,0,0.22), rgba(0,0,0,0))' }} />;
+    }
+  };
+
+  const renderPageCard = (idx, withRef = false) => (
+    <div style={pageCardStyle}>
+      <pre
+        className="reader-text"
+        ref={withRef ? textWrapRef : undefined}
+        lang={langAttr}
+        style={pageTextStyle}
+        onMouseUp={withRef ? (e)=>{ if (textWrapRef.current?.contains(e.target)) showAddMenuForSelection(e); } : undefined}
+      >
+        {renderWithHighlights(pages[idx] || '', idx)}
+      </pre>
+    </div>
+  );
+
+  // Transformlarni hisoblash
+  const getTransforms = () => {
+    if (!anim.active) return null;
+    const p = axisSize ? Math.min(1, Math.abs(anim.dragPx) / axisSize) : 0;
+    const shadowOpacity = 0.12 + p * 0.20;
+
+    if (anim.stage === 'drag') {
+      const currTr = anim.flowForAnim === 'horizontal'
+        ? `translateX(${anim.dragPx}px)` : `translateY(${anim.dragPx}px)`;
+      const base = (anim.dir === 'next' ? axisSize : -axisSize);
+      const tgtShift = base + anim.dragPx;
+      const targTr = anim.flowForAnim === 'horizontal'
+        ? `translateX(${tgtShift}px)` : `translateY(${tgtShift}px)`;
+      return { currTr, targTr, duration: 0, shadowOpacity };
+    }
+    if (anim.stage === 'run') {
+      const goingOut = anim.commit && anim.target != null;
+      const currEnd = goingOut ? (anim.dir === 'next' ? -axisSize : axisSize) : 0;
+      const targEnd = goingOut ? 0 : (anim.dir === 'next' ? axisSize : -axisSize);
+      const currTr = anim.flowForAnim === 'horizontal'
+        ? `translateX(${currEnd}px)` : `translateY(${currEnd}px)`;
+      const targTr = anim.flowForAnim === 'horizontal'
+        ? `translateX(${targEnd}px)` : `translateY(${targEnd}px)`;
+      return { currTr, targTr, duration: 260, shadowOpacity: goingOut ? 0.24 : 0.12 };
+    }
+    return null;
+  };
+  const tr = getTransforms();
 
   return (
     <div
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
+      ref={containerRef}
       onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       onKeyDown={onKeyDown}
       tabIndex={0}
       style={{
@@ -577,8 +777,13 @@ const Reader = () => {
         position: 'relative',
         overflowX: 'hidden',
         touchAction: flow === 'horizontal' ? 'pan-y' : 'pan-x',
+        userSelect: anim.stage === 'drag' ? 'none' : 'auto', // drag payti tanlanmasin
       }}
-      onClick={() => { if (hlMenu.visible) setHlMenu(m => ({ ...m, visible:false })); }}
+      onClick={(e) => {
+        if (hlMenu.visible && !e.target.closest?.('[data-hl-menu]')) {
+          setHlMenu(m => ({ ...m, visible:false }));
+        }
+      }}
     >
       {/* TOP BAR */}
       <div data-block-nav="true" style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -600,7 +805,7 @@ const Reader = () => {
         </div>
       </div>
 
-      {/* Progress chiziq */}
+      {/* Progress */}
       <div data-block-nav="true" style={{ height:4, width:'100%', background:progressTrack, borderRadius:999, overflow:'hidden', margin:'10px 0 12px' }}>
         <div style={{ height:'100%', width:`${progress}%`, background:progressBar, borderRadius:999, transition:'width 220ms ease' }} />
       </div>
@@ -617,117 +822,46 @@ const Reader = () => {
         </div>
       )}
 
-      {/* ======= PAGE AREA: slayd animatsiya ======= */}
+      {/* ======= PAGE AREA ======= */}
       <div style={{ position:'relative', minHeight:'40vh' }}>
-        {/* odatiy (anim yo‘q) */}
-        {!anim.active && (
-          <pre
-            className="reader-text"
-            ref={textWrapRef}
-            onMouseUp={(e)=>{ if (textWrapRef.current?.contains(e.target)) showAddMenuForSelection(e); }}
-            onTouchEnd={(e)=>{ /* zaxira */ }}
-            lang="uz-Cyrl"
-            style={{
-              whiteSpace: 'pre-wrap',
-              lineHeight: '1.8',
-              fontSize: `${fontSize}px`,
-              fontFamily: fontFamily,
-              marginBottom: '3.6rem',
-              overflowX: 'hidden',
-              maxWidth: '100%',
-              userSelect: 'text',
+        {!anim.active && renderPageCard(currentPage, true)}
 
-              // Justify + xavfsiz bo'linish
-              textAlign: 'justify',
-              textJustify: 'inter-word',
-              hyphens: 'auto',
-              WebkitHyphens: 'auto',
-              overflowWrap: 'anywhere',
-              wordBreak: 'normal',
-            }}
-          >
-            {renderWithHighlights(pages[currentPage] || '', currentPage)}
-          </pre>
-        )}
-
-        {/* anim payti — ikki qatlam */}
         {anim.active && (
           <>
-            {/* joriy qatlam */}
+            {/* current layer */}
             <div
               style={{
-                ...layerBase,
-                transform: anim.stage === 'prep'
-                  ? `translate${axis}(0%)`
-                  : `translate${axis}(${currTo})`,
-                transition: anim.stage === 'run' ? 'transform 260ms ease' : 'none',
+                position: 'absolute', inset: 0, overflow: 'hidden', willChange: 'transform', zIndex: 2,
+                transform: tr ? tr.currTr : 'none',
+                transition: tr && tr.duration ? `transform ${tr.duration}ms cubic-bezier(.22,.61,.36,1)` : 'none',
               }}
             >
-              <pre
-                className="reader-text"
-                lang="uz-Cyrl"
-                style={{
-                  whiteSpace: 'pre-wrap',
-                  lineHeight: '1.8',
-                  fontSize: `${fontSize}px`,
-                  fontFamily: fontFamily,
-                  marginBottom: '3.6rem',
-                  overflowX: 'hidden',
-                  maxWidth: '100%',
-
-                  textAlign: 'justify',
-                  textJustify: 'inter-word',
-                  hyphens: 'auto',
-                  WebkitHyphens: 'auto',
-                  overflowWrap: 'anywhere',
-                  wordBreak: 'normal',
-                }}
-              >
-                {renderWithHighlights(pages[currentPage] || '', currentPage)}
-              </pre>
+              {renderPageCard(currentPage, false)}
+              {anim.flowForAnim === 'horizontal'
+                ? <EdgeShadow flowAxis="horizontal" side={anim.dir === 'next' ? 'left' : 'right'} opacity={tr ? tr.shadowOpacity : 0.18} />
+                : <EdgeShadow flowAxis="vertical" side={anim.dir === 'next' ? 'top' : 'bottom'} opacity={tr ? tr.shadowOpacity : 0.18} />
+              }
             </div>
 
-            {/* keyingi/oldingi qatlam */}
+            {/* target layer */}
             <div
               onTransitionEnd={finishAnim}
               style={{
-                ...layerBase,
-                transform: anim.stage === 'prep'
-                  ? `translate${axis}(${nextFrom})`
-                  : `translate${axis}(0%)`,
-                transition: anim.stage === 'run' ? 'transform 260ms ease' : 'none',
+                position: 'absolute', inset: 0, overflow: 'hidden', willChange: 'transform', zIndex: 1,
+                transform: tr ? tr.targTr : 'none',
+                transition: tr && tr.duration ? `transform ${tr.duration}ms cubic-bezier(.22,.61,.36,1)` : 'none',
               }}
             >
-              <pre
-                className="reader-text"
-                lang="uz-Cyrl"
-                style={{
-                  whiteSpace: 'pre-wrap',
-                  lineHeight: '1.8',
-                  fontSize: `${fontSize}px`,
-                  fontFamily: fontFamily,
-                  marginBottom: '3.6rem',
-                  overflowX: 'hidden',
-                  maxWidth: '100%',
-
-                  textAlign: 'justify',
-                  textJustify: 'inter-word',
-                  hyphens: 'auto',
-                  WebkitHyphens: 'auto',
-                  overflowWrap: 'anywhere',
-                  wordBreak: 'normal',
-                }}
-              >
-                {renderWithHighlights(pages[anim.target ?? currentPage] || '', anim.target ?? currentPage)}
-              </pre>
+              {renderPageCard(anim.target ?? currentPage, false)}
             </div>
           </>
         )}
       </div>
 
-      {/* HIGHLIGHT MENYUSI (floating) */}
+      {/* HIGHLIGHT MENYUSI */}
       {hlMenu.visible && (
         <div
+          data-hl-menu
           data-block-nav="true"
           onClick={(e)=>e.stopPropagation()}
           onMouseDown={(e)=>e.stopPropagation()}
@@ -794,8 +928,12 @@ const Reader = () => {
       {/* "O‘qildi" tugmasi */}
       <button
         data-block-nav="true"
-        onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleReadCurrent(); }}
-        title={isCurrentRead ? 'Belgilashni bekor qilish' : 'Ushbu sahifani o‘qildi deb belgilash'}
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); markReadUpToCurrent(); }}
+        title={
+          allUpToCurrentRead
+            ? 'Bu sahifagacha hammasi allaqachon belgilangan'
+            : `0–${currentPage + 1} sahifalarni o‘qildi deb belgilash`
+        }
         style={{
           position: 'fixed', right: 10, bottom: 18, zIndex: 600,
           padding: '10px 12px', borderRadius: 999, border: `1px solid ${border}`,
@@ -822,7 +960,7 @@ const Reader = () => {
         {currentPage + 1} / {pages.length}
       </div>
 
-      {/* READ LIST, SEARCH, JUMP MODAL, SETTINGS — qolganlari o'zgarishsiz */}
+      {/* SEARCH PANEL */}
       {showSearch && (
         <>
           <div className="search-overlay" data-block-nav="true" onClick={() => setShowSearch(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1390 }} />
@@ -853,6 +991,7 @@ const Reader = () => {
         </>
       )}
 
+      {/* READ LIST */}
       {showReadList && (
         <>
           <div className="readlist-overlay" data-block-nav="true" onClick={() => setShowReadList(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1200 }} />
@@ -883,6 +1022,7 @@ const Reader = () => {
         </>
       )}
 
+      {/* PAGE JUMP */}
       {showJumpModal && (
         <div onClick={() => setShowJumpModal(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
           <div data-block-nav="true"
@@ -920,6 +1060,13 @@ const Reader = () => {
               flow={flow}
               setFlow={setFlow}
               onClose={() => setShowSettings(false)}
+              // 🆕 Yangi propslar:
+              pageMargin={pageMargin}
+              setPageMargin={setPageMargin}
+              wordSpacing={wordSpacing}
+              setWordSpacing={setWordSpacing}
+              letterSpacing={letterSpacing}
+              setLetterSpacing={setLetterSpacing}
             />
           </div>
         </>
@@ -927,5 +1074,6 @@ const Reader = () => {
     </div>
   );
 };
+
 
 export default Reader;

@@ -1,10 +1,51 @@
-// ReaderEpub.jsx
+// src/pages/ReaderEpub.jsx
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { loadFormattedEpubPages } from '../utils/epubUtils';
 import { useTelegram, tg } from '../hooks/useTelegram';
 import SettingsPanel from '../components/SettingsPanel';
 import { IoSettingsSharp, IoChevronBack, IoSearchSharp } from 'react-icons/io5';
+
+/* ================= HY­PHEN FALLBACK (lotin + kiril) ================= */
+// Justify paytida uzilishni osonlashtirish uchun agressivroq fallback.
+// MIN_LEN: 8 (ilgari 12), segmentlar 4–7 belgidan.
+const VOWELS_RE = /[aeiouаеёиоуыэюяAEIOUАЕЁИОУЫЭЮЯ]/;
+function insertSoftHyphens(word) {
+  const MIN_LEN = 8;
+  const MIN_CHUNK = 4;
+  const MAX_CHUNK = 7;
+  if (!word || word.length < MIN_LEN) return word;
+
+  const parts = [];
+  let buf = '';
+  const isV = (ch) => VOWELS_RE.test(ch);
+
+  for (let i = 0; i < word.length; i++) {
+    buf += word[i];
+    const prev = word[i - 1] || '';
+    const change = (isV(prev) && !isV(word[i])) || (!isV(prev) && isV(word[i]));
+    const dblCons = !isV(prev) && !isV(word[i]);
+
+    const longEnough = buf.length >= MIN_CHUNK;
+    const tooLong = buf.length >= MAX_CHUNK;
+
+    if ((longEnough && (change || dblCons)) || tooLong) {
+      parts.push(buf);
+      buf = '';
+    }
+  }
+  if (buf) parts.push(buf);
+  return parts.join('\u00AD'); // soft hyphen
+}
+function hyphenateVisible(s) {
+  if (!s) return s;
+  try {
+    return s.replace(/[\p{L}\p{M}]{8,}/gu, (w) => insertSoftHyphens(w));
+  } catch {
+    return s.replace(/\w{8,}/g, (w) => insertSoftHyphens(w));
+  }
+}
+/* ==================================================================== */
 
 const ReaderEpub = () => {
   const { user } = useTelegram();
@@ -18,14 +59,29 @@ const ReaderEpub = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showJumpModal, setShowJumpModal] = useState(false);
   const [jumpInput, setJumpInput] = useState('');
-  const [showReadList, setShowReadList] = useState(false); // ⬅️ O‘qilganlar ro‘yxati
+  const [showReadList, setShowReadList] = useState(false);
 
+  // Asosiy UI sozlamalar
   const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('fontSize') || '16', 10));
   const [fontFamily, setFontFamily] = useState(() => localStorage.getItem('fontFamily') || 'Times New Roman');
   const [background, setBackground] = useState(() => localStorage.getItem('background') || '#ffffff');
   const [brightness, setBrightness] = useState(() => parseInt(localStorage.getItem('brightness') || '100', 10));
 
-  // 👉 oqim (SettingsPanel bilan sinxron)
+  // 🆕 Tipografiya (Reader.jsx bilan bir xil)
+  const [pageMargin, setPageMargin] = useState(() => {
+    const v = localStorage.getItem('pageMargin');
+    return v !== null ? Number(v) : 24;
+  });
+  const [wordSpacing, setWordSpacing] = useState(() => {
+    const v = localStorage.getItem('wordSpacing');
+    return v !== null ? Number(v) : 0;
+  });
+  const [letterSpacing, setLetterSpacing] = useState(() => {
+    const v = localStorage.getItem('letterSpacing');
+    return v !== null ? Number(v) : 0;
+  });
+
+  // Oqim
   const [flow, setFlow] = useState(() => {
     const saved = localStorage.getItem('readFlow');
     return saved === 'vertical' || saved === 'horizontal' ? saved : 'horizontal';
@@ -47,16 +103,20 @@ const ReaderEpub = () => {
   const progress = totalPages ? Math.floor((readPages.size / totalPages) * 100) : 0;
   const isCurrentRead = readPages.has(currentPage);
 
-  const toggleReadCurrent = () => {
+  // 🆕 "O‘qildi" — joriy sahifagacha hammasini belgila
+  const markReadUpToCurrent = () => {
     setReadPages(prev => {
       const next = new Set(prev);
-      if (next.has(currentPage)) next.delete(currentPage);
-      else next.add(currentPage);
+      for (let i = 0; i <= currentPage; i++) next.add(i);
       return next;
     });
   };
+  const allUpToCurrentRead = (() => {
+    for (let i = 0; i <= currentPage; i++) if (!readPages.has(i)) return false;
+    return true;
+  })();
 
-  // HEX rang yorug' (light) yoki qorong'i (dark)
+  // Rang yorug‘/qorong‘i
   const isColorDark = (hex) => {
     try {
       if (!hex) return false;
@@ -78,28 +138,18 @@ const ReaderEpub = () => {
     localStorage.setItem(`read-${bookId}`, JSON.stringify(Array.from(readPages)));
   }, [readPages, bookId]);
 
-  // state-lardan keyin
-  const openReadList = () => {
-    if (document.activeElement?.blur) document.activeElement.blur();
-    setShowReadList(true);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
-      });
-    });
-  };
-
-  // 🔍 Qidiruv holatlari
-  const [showSearch, setShowSearch] = useState(false);
-  const [query, setQuery] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [results, setResults] = useState([]); // [{ page, snippet }]
-
-  // Settings ochilganda pastga siljitish
+  // Pastga surish (search/settings ochilganda)
   useEffect(() => {
     if (showSettings) setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50);
   }, [showSettings]);
-  useEffect(() => { if (showSettings) setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50); }, [showSettings]); useEffect(() => { if (showSearch) setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50); }, [showSearch]);
+  const [showSearch, setShowSearch] = useState(false);
+  useEffect(() => {
+    if (showSearch) setTimeout(() => window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }), 50);
+  }, [showSearch]);
+
+  const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState([]); // [{ page, snippet }]
 
   // Sozlamalarni saqlash
   useEffect(() => {
@@ -108,6 +158,11 @@ const ReaderEpub = () => {
     localStorage.setItem('background', background);
     localStorage.setItem('brightness', String(brightness));
   }, [fontSize, fontFamily, background, brightness]);
+
+  // 🆕 tipografiya LS
+  useEffect(() => { localStorage.setItem('pageMargin', String(pageMargin)); }, [pageMargin]);
+  useEffect(() => { localStorage.setItem('wordSpacing', String(wordSpacing)); }, [wordSpacing]);
+  useEffect(() => { localStorage.setItem('letterSpacing', String(letterSpacing)); }, [letterSpacing]);
 
   // EPUB yuklash
   useEffect(() => {
@@ -138,9 +193,18 @@ const ReaderEpub = () => {
     };
   }, []);
 
-  const goHome = () => navigate('/');
+  // READ LIST ochish
+  const openReadList = () => {
+    if (document.activeElement?.blur) document.activeElement.blur();
+    setShowReadList(true);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+      });
+    });
+  };
 
-  // ======== SLIDE ANIMATSIYA (tap olib tashlandi) ========
+  // ======== SLIDE ANIMATSIYA ========
   const threshold = 50;
   const startX = useRef(0);
   const startY = useRef(0);
@@ -152,7 +216,6 @@ const ReaderEpub = () => {
   const shouldBlockFromTarget = (t) =>
     (t?.closest && t.closest('[data-block-nav="true"]')) ? true : false;
 
-  // anim holati
   const [anim, setAnim] = useState({
     active: false,
     stage: 'idle',            // 'idle' | 'prep' | 'run'
@@ -170,7 +233,6 @@ const ReaderEpub = () => {
     }));
   };
 
-  // touch / pointer
   const onTouchStart = useCallback((e) => {
     if (guardBlocked() || anim.active) return;
     if (shouldBlockFromTarget(e.target)) return;
@@ -192,8 +254,8 @@ const ReaderEpub = () => {
       }
     } else {
       if (Math.abs(dy) >= threshold && Math.abs(dy) > Math.abs(dx)) {
-        if (dy < 0) startAnim(currentPage + 1, 'next'); // yuqoriga — keyingi
-        else startAnim(currentPage - 1, 'prev');         // pastga — oldingi
+        if (dy < 0) startAnim(currentPage + 1, 'next');
+        else startAnim(currentPage - 1, 'prev');
       }
     }
   }, [guardBlocked, flow, currentPage, anim.active, pages.length]);
@@ -233,7 +295,7 @@ const ReaderEpub = () => {
       if (e.key === 'ArrowDown')  startAnim(currentPage + 1, 'next');
       if (e.key === 'ArrowUp')    startAnim(currentPage - 1, 'prev');
     }
-    if (e.key.toLowerCase() === 'r') toggleReadCurrent();
+    if (e.key.toLowerCase() === 'r') markReadUpToCurrent();
   }, [guardBlocked, flow, currentPage, anim.active]);
 
   const finishAnim = useCallback(() => {
@@ -242,14 +304,13 @@ const ReaderEpub = () => {
     setAnim({ active: false, stage: 'idle', dir: 'next', flowForAnim: flow, target: null });
   }, [anim, flow]);
 
-  // ------------- 🔍 Qidiruv yordamchi funksiyalar -------------
+  // -------- Qidiruv yordamchi --------
   const makeSnippet = (text, pos, qlen) => {
     const start = Math.max(0, pos - 40);
     const end = Math.min(text.length, pos + qlen + 40);
     const raw = text.slice(start, end).replace(/\s+/g, ' ').trim();
     return `${start > 0 ? '… ' : ''}${raw}${end < text.length ? ' …' : ''}`;
   };
-
   const runSearch = () => {
     const q = query.trim();
     if (!q) { setResults([]); return; }
@@ -257,46 +318,23 @@ const ReaderEpub = () => {
 
     const qlc = q.toLowerCase();
     const found = [];
-
     for (let i = 0; i < pages.length; i++) {
       const t = (pages[i] || '').toString();
       const tlc = t.toLowerCase();
       const idx = tlc.indexOf(qlc);
-      if (idx !== -1) {
-        found.push({ page: i, snippet: makeSnippet(t, idx, q.length) });
-      }
+      if (idx !== -1) found.push({ page: i, snippet: makeSnippet(t, idx, q.length) });
     }
-
     setResults(found);
     setSearching(false);
   };
-
   const jumpToResult = (p) => {
     setCurrentPage(p);
     setShowSearch(false);
     setQuery('');
     setResults([]);
   };
-  // ------------------------------------------------------------
 
-  // 🔢 O‘qilgan sahifalarni compact ko‘rinishga keltirish
-  const compactRanges = (arr) => {
-    const a = [...new Set(arr)].sort((x, y) => x - y);
-    const out = [];
-    let s = null, p = null;
-    for (const n of a) {
-      if (s === null) { s = p = n; continue; }
-      if (n === p + 1) { p = n; continue; }
-      out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`);
-      s = p = n;
-    }
-    if (s !== null) out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`);
-    return out.join(', ');
-  };
-
-  // =======================
-  // HIGHLIGHT BLOKI (hooks, helpers, render)  — MUHIM: if(loading) return’DAN YUQORIDA!
-  // =======================
+  // ======== HIGHLIGHT ========
   const HL_KEY = (bid) => `highlights:${bid}`;
   const textWrapRef = useRef(null);
   const selectionOffsetsRef = useRef({ start:null, end:null });
@@ -375,20 +413,15 @@ const ReaderEpub = () => {
       const keepOther = prev.filter(h => h.page !== page);
       const samePage  = prev.filter(h => h.page === page);
 
-      // allaqachon mavjud highlight ichida bo'lsa — NO-OP
       for (const h of samePage) {
         if (isCoveredBy(h.start, h.end, ns, ne)) return prev;
       }
 
-      // qisman kesishsa — normalizatsiya qilamiz (bitta oraliq)
       const blocks = [...samePage, { id:'tmp', page, start: ns, end: ne, color }];
       const merged = mergePageRanges(blocks.map(({ start, end }) => ({ start, end })));
       const normalized = merged.map(r => ({
         id: `${page}-${r.start}-${r.end}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
-        page,
-        start: r.start,
-        end: r.end,
-        color
+        page, start: r.start, end: r.end, color
       }));
 
       return [...keepOther, ...normalized];
@@ -435,12 +468,13 @@ const ReaderEpub = () => {
     });
   };
 
+  // Matn renderi: hyphen fallback + highlight
   const renderWithHighlights = (text, pageIndex) => {
     const pageHls = highlights
       .filter(h => h.page === pageIndex)
       .sort((a, b) => a.start - b.start || a.end - b.end);
 
-    if (pageHls.length === 0) return text;
+    if (pageHls.length === 0) return hyphenateVisible(text);
 
     const out = [];
     let cursor = 0;
@@ -451,7 +485,7 @@ const ReaderEpub = () => {
       if (e <= cursor) continue;
       if (s < cursor) s = cursor;
 
-      if (cursor < s) out.push(text.slice(cursor, s));
+      if (cursor < s) out.push(hyphenateVisible(text.slice(cursor, s)));
       out.push(
         <mark
           key={`${h.id}-${s}-${e}`}
@@ -460,16 +494,16 @@ const ReaderEpub = () => {
           onClick={(e)=>showRemoveMenuFor(e, h.id)}
           style={{ background: h.color || '#fff59d', padding:'0 0.5px', borderRadius:'2px' }}
         >
-          {text.slice(s, e)}
+          {hyphenateVisible(text.slice(s, e))}
         </mark>
       );
       cursor = e;
     }
-    if (cursor < text.length) out.push(text.slice(cursor));
+    if (cursor < text.length) out.push(hyphenateVisible(text.slice(cursor)));
     return out;
   };
 
-  // ======= LOADING CHECK (hooklardan keyin!) =======
+  // ======= LOADING =======
   if (loading) {
     return (
       <div style={{ position:'fixed', inset:0, background:'#ffffff', display:'flex', justifyContent:'center', alignItems:'center', fontSize:'18px', color:'#444', zIndex:9999 }}>
@@ -492,6 +526,48 @@ const ReaderEpub = () => {
   const axis = anim.flowForAnim === 'horizontal' ? 'X' : 'Y';
   const nextFrom = (anim.dir === 'next') ? '100%' : '-100%';
   const currTo  = (anim.dir === 'next') ? '-100%' : '100%';
+
+  // 🆕 Matn konteyneri — Reader.jsx bilan bir xil ruh
+  const pageTextStyle = {
+    whiteSpace: 'pre-wrap',
+    lineHeight: '1.8',
+    fontSize: `${fontSize}px`,
+    fontFamily,
+
+    margin: '0 auto 3.6rem',
+    maxWidth: 'clamp(52ch, 92vw, 74ch)',
+
+    padding: `${pageMargin}px`,
+    borderRadius: '12px',
+
+    overflowX: 'hidden',
+    maxInlineSize: '100%',
+    userSelect: 'text',
+
+    textAlign: 'justify',
+    textJustify: 'inter-character',
+
+    hyphens: 'auto',
+    WebkitHyphens: 'auto',
+
+    overflowWrap: 'break-word',
+    wordBreak: 'normal',
+
+    WebkitHyphenateLimitBefore: '3',
+    WebkitHyphenateLimitAfter: '3',
+    WebkitHyphenateLimitLines: '2',
+
+    fontKerning: 'normal',
+    textWrap: 'pretty',
+
+    // 🆕 spacing sliderlar
+    wordSpacing: `${wordSpacing}px`,
+    letterSpacing: `${letterSpacing}px`,
+
+    backgroundColor: 'transparent',
+  };
+
+  const layerBase = { position:'absolute', inset:0, overflow:'hidden', willChange:'transform' };
 
   return (
     <div
@@ -538,13 +614,13 @@ const ReaderEpub = () => {
         </div>
       </div>
 
-      {/* Yupqa progress chiziq */}
+      {/* Progress chiziq */}
       <div data-block-nav="true" style={{ height: 4, width: '100%', background: progressTrack, borderRadius: 999, overflow: 'hidden', margin: '10px 0 12px' }}>
         <div style={{ height: '100%', width: `${progress}%`, background: progressBar, borderRadius: 999, transition: 'width 220ms ease' }} />
       </div>
 
       {/* 🔍 Qidiruv paneli */}
-     {showSearch && (
+      {showSearch && (
         <>
           <div className="search-overlay" data-block-nav="true" onClick={() => setShowSearch(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1390 }} />
           <div className="search-panel" data-block-nav="true"
@@ -596,22 +672,8 @@ const ReaderEpub = () => {
             onMouseUp={(e)=>{ e.stopPropagation(); showAddMenuForSelection(); }}
             onPointerUp={(e)=>{ e.stopPropagation(); showAddMenuForSelection(); }}
             onTouchEnd={(e)=>{ e.stopPropagation(); showAddMenuForSelection(); }}
-            style={{  whiteSpace: 'pre-wrap',
-  textAlign: 'justify',
-  textJustify: 'inter-word',
-  textAlignLast: 'left',
-  hyphens: 'auto',
-  WebkitHyphens: 'auto',
-  overflowWrap: 'break-word',   // <— ANYWHERE EMAS!
-  wordBreak: 'normal',
-  textWrap: 'pretty',
-  lineHeight: '1.8',
-  fontSize: `${fontSize}px`,
-  fontFamily,
-  marginBottom: '3.6rem',
-  overflowX: 'hidden',
-  maxWidth: '100%',
-  userSelect: 'text'}}
+            lang="uz"
+            style={pageTextStyle}
           >
             {renderWithHighlights(pages[currentPage] || '', currentPage)}
           </pre>
@@ -623,14 +685,14 @@ const ReaderEpub = () => {
             {/* joriy qatlam */}
             <div
               style={{
-                position:'absolute', inset:0, overflow:'hidden', willChange:'transform',
+                ...layerBase,
                 transform: anim.stage === 'prep'
                   ? `translate${axis}(0%)`
                   : `translate${axis}(${currTo})`,
                 transition: anim.stage === 'run' ? 'transform 260ms ease' : 'none',
               }}
             >
-              <pre className="reader-text" style={{ whiteSpace:'pre-wrap', lineHeight:'1.8', fontSize:`${fontSize}px`, fontFamily, marginBottom:'3.6rem', overflowX:'hidden', maxWidth:'100%' }}>
+              <pre className="reader-text" lang="uz" style={pageTextStyle}>
                 {renderWithHighlights(pages[currentPage] || '', currentPage)}
               </pre>
             </div>
@@ -639,14 +701,14 @@ const ReaderEpub = () => {
             <div
               onTransitionEnd={finishAnim}
               style={{
-                position:'absolute', inset:0, overflow:'hidden', willChange:'transform',
+                ...layerBase,
                 transform: anim.stage === 'prep'
                   ? `translate${axis}(${nextFrom})`
                   : `translate${axis}(0%)`,
                 transition: anim.stage === 'run' ? 'transform 260ms ease' : 'none',
               }}
             >
-              <pre className="reader-text" style={{ whiteSpace:'pre-wrap', lineHeight:'1.8', fontSize:`${fontSize}px`, fontFamily, marginBottom:'3.6rem', overflowX:'hidden', maxWidth:'100%' }}>
+              <pre className="reader-text" lang="uz" style={pageTextStyle}>
                 {renderWithHighlights(pages[anim.target ?? currentPage] || '', anim.target ?? currentPage)}
               </pre>
             </div>
@@ -705,17 +767,15 @@ const ReaderEpub = () => {
         </div>
       )}
 
-      {/* Floating: "O'qildi" */}
+      {/* Floating: "O'qildi" — joriy sahifagacha barchasi */}
       <button
         data-block-nav="true"
-        onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleReadCurrent(); }}
-        onTouchStart={(e) => { e.stopPropagation(); }}
-        onTouchMove={(e) => { e.stopPropagation(); }}
-        onTouchEnd={(e) => { e.stopPropagation(); }}
-        onPointerDown={(e) => { e.stopPropagation(); }}
-        onPointerMove={(e) => { e.stopPropagation(); }}
-        onPointerUp={(e) => { e.stopPropagation(); }}
-        title={isCurrentRead ? 'Belgilashni bekor qilish' : 'Ushbu sahifani o‘qildi deb belgilash'}
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); markReadUpToCurrent(); }}
+        title={
+          allUpToCurrentRead
+            ? 'Bu sahifagacha hammasi allaqachon belgilangan'
+            : `0–${currentPage + 1} sahifalarni o‘qildi deb belgilash`
+        }
         style={{
           position: 'fixed', right: 10, bottom: 18, zIndex: 600,
           padding: '10px 12px', borderRadius: 999, border: `1px solid ${border}`,
@@ -759,7 +819,13 @@ const ReaderEpub = () => {
               </button>
             </div>
             <div style={{ fontSize:13, color:'#555', background:'#f7f7f7', border:'1px solid #eee', borderRadius:10, padding:'8px 10px', marginBottom:10, lineHeight:1.5 }}>
-              {readArr.length ? compactRanges(readArr) : 'Hali sahifalar belgilanmagan'}
+              {readArr.length ? [...new Set(readArr)].sort((a,b)=>a-b).reduce((acc, n, i, arr) => {
+                // compact ranges
+                if (i===0) return [[n,n]];
+                const last = acc[acc.length-1];
+                if (n === last[1]+1) { last[1]=n; return acc; }
+                acc.push([n,n]); return acc;
+              }, []).map(([s,e])=> s===e ? `${s+1}` : `${s+1}–${e+1}`).join(', ') : 'Hali sahifalar belgilanmagan'}
             </div>
             {!!readArr.length && (
               <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
@@ -798,7 +864,7 @@ const ReaderEpub = () => {
               value={jumpInput}
               onChange={(e)=>setJumpInput(e.target.value)}
               onKeyDown={(e)=>{ if (e.key==='Enter'){ const p=parseInt(jumpInput,10); if(!isNaN(p)&&p>=1&&p<=pages.length){ setCurrentPage(p-1); setShowJumpModal(false); setJumpInput(''); }}}}
-              style={{ width:'200px', padding:'10px 12px', borderRadius:'8px', border:"'1px solid '#ddd'", fontSize:'15px', background:'#f9f9f9', color:'#333', outline:'none', transition:'all 0.2s ease' }}
+              style={{ width:'200px', padding:'10px 12px', borderRadius:'8px', border:'1px solid #ddd', fontSize:'15px', background:'#f9f9f9', color:'#333', outline:'none', transition:'all 0.2s ease' }}
             />
             <p style={{ marginTop:'8px', fontSize:'12px', color:'#999' }}>Enter tugmasini bosing</p>
           </div>
@@ -828,6 +894,11 @@ const ReaderEpub = () => {
               brightness={brightness} setBrightness={setBrightness}
               flow={flow} setFlow={setFlow}
               onClose={() => setShowSettings(false)}
+
+              // 🆕 Advanced (Reader.jsx bilan sinxron)
+              pageMargin={pageMargin} setPageMargin={setPageMargin}
+              wordSpacing={wordSpacing} setWordSpacing={setWordSpacing}
+              letterSpacing={letterSpacing} setLetterSpacing={setLetterSpacing}
             />
           </div>
         </>
