@@ -916,7 +916,35 @@ const ReaderEpub = () => {
       >
         {currentPage + 1} / {pages.length}
       </div>
-
+   {showSearch && (
+        <>
+          <div className="search-overlay" data-block-nav="true" onClick={() => setShowSearch(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1390 }} />
+          <div className="search-panel" data-block-nav="true"
+            onClick={(e)=>e.stopPropagation()} onTouchStart={(e)=>e.stopPropagation()} onTouchMove={(e)=>e.stopPropagation()} onTouchEnd={(e)=>e.stopPropagation()}
+            onPointerDown={(e)=>e.stopPropagation()} onPointerMove={(e)=>e.stopPropagation()} onPointerUp={(e)=>e.stopPropagation()}
+            style={{ position:'fixed', left:0, right:0, bottom:0, background:surface, borderTopLeftRadius:24, borderTopRightRadius:24, boxShadow:'0 -8px 24px rgba(0,0,0,0.18)', padding:'14px 14px 18px', zIndex:1400, maxHeight:'70vh', overflowY:'auto', WebkitOverflowScrolling:'touch' }}>
+            <div style={{ display:'flex', gap:8 }}>
+              <input data-block-nav="true" value={query} onChange={(e)=>setQuery(e.target.value)} onKeyDown={(e)=>{ if (e.key === 'Enter') runSearch(); }} placeholder="Matndan qidirish… (Enter)"
+                style={{ flex:1, padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', outline:'none', fontSize:14, background:isDark?'#1c1c1c':'#fff', color:isDark?'#f5f5f5':'#111' }}/>
+              <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); runSearch(); }} style={{ padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', background:'#1c1c1c', color:'#fff', cursor:'pointer', fontSize:14 }}>Qidir</button>
+            </div>
+            <div style={{ marginTop:8, fontSize:12, color:'#6b7280' }}>
+              {searching ? 'Qidirilmoqda…' : (results.length ? `${results.length} ta sahifa topildi` : (query ? 'Hech narsa topilmadi' : ''))}
+            </div>
+            {!!results.length && (
+              <div data-block-nav="true" style={{ marginTop:8, borderTop:`1px dashed ${border}`, maxHeight:'48vh', overflow:'auto', paddingTop:8 }}>
+                {results.map((r, idx) => (
+                  <button key={`${r.page}-${idx}`} data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); jumpToResult(r.page); setShowSearch(false); }}
+                    style={{ width:'100%', textAlign:'left', padding:'10px 8px', borderRadius:10, border:`1px solid ${border}`, background:cardBg, color:isDark?'#f3f4f6':'#111', cursor:'pointer', marginBottom:8 }}>
+                    <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>Sahifa {r.page + 1}</div>
+                    <div style={{ fontSize:14, lineHeight:1.4 }}>{r.snippet}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
       {/* READ LIST */}
       {showReadList && (
         <>
