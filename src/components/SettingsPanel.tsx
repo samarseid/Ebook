@@ -340,8 +340,8 @@ const SettingsPanel: React.FC<SettingsProps> = ({
 
               <button
                 type="button"
-                onClick={() => setFontSize(Math.min(40, fontSize + 2))}
-                disabled={fontSize >= 40}
+                onClick={() => setFontSize(Math.min(18, fontSize + 2))}
+                disabled={fontSize >= 18}
                 aria-label="Shriftni kattalashtirish"
                 style={{
                   borderRadius: 10,

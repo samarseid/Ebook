@@ -267,6 +267,23 @@ const Reader = () => {
   const textWrapRef = useRef(null);     // horizontal page text
   const verticalRootRef = useRef(null);
   const pageRefs = useRef([]);
+  // === SCROLL & IO GUARD ===
+const suppressIORef = useRef(false); // IO vaqtincha bloklash (flow switch/restore payti)
+const restoredOnMountRef = useRef(false); // vertikalga bir marta qayta tiklash guard
+const prevFlowRef = useRef(null);
+
+function scrollPageIntoView(idx, behavior = 'auto') {
+  const el = pageRefs.current?.[idx];
+  if (el) el.scrollIntoView({ behavior, block: 'start' });
+}
+
+function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
+  if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const top = window.pageYOffset + rect.top - yOffset;
+  window.scrollTo({ top: Math.max(0, top), behavior });
+}
+
   const [highlights, setHighlights] = useState(() => {
     try { const raw = localStorage.getItem(HL_KEY(bookId)); return raw ? JSON.parse(raw) : []; }
     catch { return []; }
@@ -529,25 +546,79 @@ const Reader = () => {
     }
     setResults(found); setSearching(false);
   };
-  const jumpToResult = (p) => {
-    const q = query.trim(); setCurrentPage(p); setShowSearch(false); setQuery(''); setResults([]);
-    if (q) { const ranges = findAllRanges(pages[p] || '', q); setSearchFlash({ page:p, ranges }); setTimeout(() => setSearchFlash({ page:null, ranges:[] }), 1800); }
+   const jumpToResult = (p) => {
+    const q = query.trim();
+    setCurrentPage(p);
+    setShowSearch(false);
+    setQuery('');
+    setResults([]);
+
+    if (q) {
+      const ranges = findAllRanges(pages[p] || '', q);
+      setSearchFlash({ page: p, ranges });
+    }
+
+    if (flow === 'vertical') {
+      requestAnimationFrame(() => {
+        const pageEl = pageRefs.current?.[p];
+        if (!pageEl) return;
+
+        // Avval sahifani “start”ga olib chiqamiz
+        pageEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        // So'ng birinchi qidiruv-hiti markiga aniq skroll
+        setTimeout(() => {
+          const firstHit = pageEl.querySelector('mark[data-sf-index="0"]');
+          if (firstHit) scrollToElement(firstHit, 80, 'smooth');
+        }, 120);
+      });
+    }
   };
 
+
   // Vertical: update currentPage on scroll
+   // Vertical: update currentPage on scroll
   useEffect(() => {
     if (flow !== 'vertical') return;
     const obs = new IntersectionObserver((entries) => {
+      if (suppressIORef.current) return; // ← MUHIM: tiklash payti IO signalini e’tiborsiz qoldiramiz
       let best = null;
-      for (const e of entries) if (e.isIntersecting) { if (!best || e.intersectionRatio > best.intersectionRatio) best = e; }
+      for (const e of entries) if (e.isIntersecting) {
+        if (!best || e.intersectionRatio > best.intersectionRatio) best = e;
+      }
       if (best) {
         const idx = Number(best.target.getAttribute('data-page-idx'));
         setCurrentPage((p) => (p !== idx ? idx : p));
       }
     }, { root: null, threshold: [0.15, 0.35, 0.55, 0.75] });
+
     pageRefs.current.forEach(el => el && obs.observe(el));
     return () => obs.disconnect();
   }, [flow, pages.length]);
+  // 3a) Komponent mount bo'lgach: agar vertikal bo'lsa saqlangan sahifaga skroll qil
+  useEffect(() => {
+    if (!pages.length || flow !== 'vertical' || restoredOnMountRef.current) return;
+    restoredOnMountRef.current = true;
+    suppressIORef.current = true;
+    requestAnimationFrame(() => {
+      scrollPageIntoView(currentPage, 'auto');
+      setTimeout(() => { suppressIORef.current = false; }, 120);
+    });
+  }, [pages.length, flow, currentPage]);
+
+  // 3b) Flow o'zgarganda: horizontal -> vertical o'tishda hozirgi sahifani ushlab qol
+  useEffect(() => {
+    if (!pages.length) return;
+    if (prevFlowRef.current && prevFlowRef.current !== flow && flow === 'vertical') {
+      suppressIORef.current = true;
+      requestAnimationFrame(() => {
+        scrollPageIntoView(currentPage, 'auto');
+        setTimeout(() => { suppressIORef.current = false; }, 120);
+      });
+    }
+    prevFlowRef.current = flow;
+  }, [flow, pages.length, currentPage]);
+
 
   if (loading) {
     return (
@@ -638,9 +709,13 @@ const Reader = () => {
 
   const renderWithHighlights = (text, pageIndex) => {
     const base = highlights.filter(h => h.page === pageIndex).map(h => ({ ...h, isFlash: h.id === flashId }));
-    const flashes = (searchFlash.page === pageIndex)
-      ? searchFlash.ranges.map((r, i) => ({ id:`sf-${i}`, page:pageIndex, start:r.start, end:r.end, color:'#fff1a6', isFlash:true }))
-      : [];
+      const flashes = (searchFlash.page === pageIndex)
+    ? searchFlash.ranges.map((r, i) => ({
+        id: `sf-${i}`, page: pageIndex, start: r.start, end: r.end,
+        color: '#fff1a6', isFlash: true, hitIndex: i
+      }))
+    : [];
+
     const pageHls = [...base, ...flashes].sort((a,b) => a.start - b.start || a.end - b.end);
     if (pageHls.length === 0) return hyphenateVisible(text);
     const out = []; let cursor = 0;
@@ -654,6 +729,8 @@ const Reader = () => {
         <mark
           key={`${h.id}-${s}-${e}`}
           {...markCommonProps}
+           data-hl-id={h.isFlash ? undefined : h.id}           // ← highlight kotvasi
+    data-sf-index={h.isFlash ? h.hitIndex : undefined}  // ← qidiruvning 1-hiti kotvasi
           onMouseDown={(e)=>e.stopPropagation()}
           onTouchStart={(e)=>e.stopPropagation()}
           onClick={(e)=>!h.isFlash && showRemoveMenuFor(e, h.id)}
@@ -1006,9 +1083,29 @@ const Reader = () => {
           <div style={{ display:'grid', gap:8 }}>
             {preparedHls.map((h) => (
               <button key={h.id} data-block-nav="true" onClick={() => {
-                  setShowHighlights(false); setCurrentPage(h.page);
-                  setTimeout(() => { setFlashId(h.id); setTimeout(()=>setFlashId(null), 900); }, 50);
-                }}
+  setShowHighlights(false);
+  setCurrentPage(h.page);
+
+  // Flash ko'rsatish
+  setTimeout(() => {
+    setFlashId(h.id);
+    setTimeout(() => setFlashId(null), 900);
+  }, 50);
+
+  if (flow === 'vertical') {
+    requestAnimationFrame(() => {
+      const pageEl = pageRefs.current?.[h.page];
+      if (!pageEl) return;
+      const target = pageEl.querySelector(`[data-hl-id="${h.id}"]`);
+      if (target) {
+        scrollToElement(target, 80, 'smooth');
+      } else {
+        pageEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  }
+}}
+
                 style={{ textAlign:'left', border:`1px solid ${border}`, background:cardBg, color:isDark?'#f3f4f6':'#111', borderRadius:12, padding:'10px 12px', cursor:'pointer' }}
                 title={`Sahifa ${h.page + 1}`}>
                 <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>Sahifa {h.page + 1}</div>
