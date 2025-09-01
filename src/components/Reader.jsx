@@ -12,15 +12,11 @@ const HL_KEY = (bookId) => `highlights:${bookId}`;
 /* ================= HY­PHEN FALLBACK (lotin + kiril) ================= */
 const VOWELS_RE = /[aeiouаеёиоуыэюяAEIOUАЕЁИОУЫЭЮЯ]/;
 function insertSoftHyphens(word) {
-  const MIN_LEN = 8;
-  const MIN_CHUNK = 4;
-  const MAX_CHUNK = 7;
+  const MIN_LEN = 8, MIN_CHUNK = 4, MAX_CHUNK = 7;
   if (!word || word.length < MIN_LEN) return word;
-
   const parts = [];
   let buf = '';
   const isV = (ch) => VOWELS_RE.test(ch);
-
   for (let i = 0; i < word.length; i++) {
     buf += word[i];
     const prev = word[i - 1] || '';
@@ -28,22 +24,15 @@ function insertSoftHyphens(word) {
     const dblCons = !isV(prev) && !isV(word[i]);
     const longEnough = buf.length >= MIN_CHUNK;
     const tooLong = buf.length >= MAX_CHUNK;
-
-    if ((longEnough && (change || dblCons)) || tooLong) {
-      parts.push(buf);
-      buf = '';
-    }
+    if ((longEnough && (change || dblCons)) || tooLong) { parts.push(buf); buf = ''; }
   }
   if (buf) parts.push(buf);
   return parts.join('\u00AD');
 }
 function hyphenateVisible(s) {
   if (!s) return s;
-  try {
-    return s.replace(/[\p{L}\p{M}]{8,}/gu, (w) => insertSoftHyphens(w));
-  } catch {
-    return s.replace(/\w{8,}/g, (w) => insertSoftHyphens(w));
-  }
+  try { return s.replace(/[\p{L}\p{M}]{8,}/gu, (w) => insertSoftHyphens(w)); }
+  catch { return s.replace(/\w{8,}/g, (w) => insertSoftHyphens(w)); }
 }
 /* ==================================================================== */
 
@@ -71,24 +60,9 @@ function fallbackAnchor(offsetTop = 80) {
   return { top: offsetTop, bottom: offsetTop, left: (window.innerWidth - w) / 2, right: (window.innerWidth + w) / 2, width: w, height: 0, x: (window.innerWidth - w) / 2, y: offsetTop };
 }
 
-/**
- * AnchoredModal — panelni foydalanuvchi bosgan tugma atrofida ko‘rsatadi.
- * - anchorRect: getBoundingClientRect() natijasi (yoki fallback)
- * - prefer: 'below' | 'above' (joylashish afzal yo‘nalishi)
- * - maxW, maxH: o‘lcham cheklovlari
- */
 const AnchoredModal = ({
-  open,
-  onClose,
-  anchorRect,
-  prefer = 'below',
-  maxW = 720,
-  maxH = 0.8, // viewport foizi (0..1) yoki px (>=1) — quyi kodda handle qilamiz
-  background = '#fff',
-  zIndex = 1400,
-  children,
-  isDark = false,
-  border = '#e5e7eb'
+  open, onClose, anchorRect, prefer = 'below', maxW = 720, maxH = 0.8,
+  background = '#fff', zIndex = 1400, children, isDark = false, border = '#e5e7eb'
 }) => {
   const panelRef = useRef(null);
   const { w: vw, h: vh } = useViewport();
@@ -98,67 +72,40 @@ const AnchoredModal = ({
   useEffect(() => {
     if (!open) { setReady(false); return; }
     const raf = requestAnimationFrame(() => {
-      const panel = panelRef.current;
-      if (!panel) return;
-
-      // Yo‘nalish va o‘lchamlar
+      const panel = panelRef.current; if (!panel) return;
       const margin = 12;
       const usableMaxW = Math.min(maxW, vw - margin * 2);
-      const cssMaxH = typeof maxH === 'number' && maxH < 1 ? Math.floor(vh * maxH) : (typeof maxH === 'number' ? Math.floor(Math.min(maxH, vh - margin * 2)) : Math.floor(vh * 0.8));
-
-      // Panelni o‘lchash uchun vaqtincha ko‘rinadigan qilamiz
+      const cssMaxH = typeof maxH === 'number' && maxH < 1
+        ? Math.floor(vh * maxH)
+        : (typeof maxH === 'number' ? Math.floor(Math.min(maxH, vh - margin * 2)) : Math.floor(vh * 0.8));
       panel.style.visibility = 'hidden';
       panel.style.maxWidth = `${usableMaxW}px`;
       panel.style.maxHeight = `${cssMaxH}px`;
       panel.style.width = 'auto';
-
-      // Reflow
       const pw = Math.min(panel.scrollWidth, usableMaxW);
       const ph = Math.min(panel.scrollHeight, cssMaxH);
 
       const a = anchorRect || fallbackAnchor(80);
       const anchorCenterX = a.left + (a.width || 0) / 2;
-
-      // Dastlabki koordinatalar
       let left = Math.round(anchorCenterX - pw / 2);
       left = Math.max(margin, Math.min(left, vw - pw - margin));
-
-      // Pastga joylashishga urinib ko‘ramiz, bo‘lmasa yuqoriga
       let topCandidateBelow = Math.round((a.bottom || a.top) + 8);
       let topCandidateAbove = Math.round((a.top || a.bottom) - ph - 8);
-      let top;
-      let origin;
-
       const spaceBelow = vh - (a.bottom || a.top);
       const spaceAbove = (a.top || a.bottom);
-
       const canBelow = spaceBelow >= ph + margin;
       const canAbove = spaceAbove >= ph + margin;
 
+      let top, origin;
       if (prefer === 'below') {
-        if (canBelow || (!canAbove && spaceBelow >= spaceAbove)) {
-          top = Math.min(topCandidateBelow, vh - ph - margin);
-          origin = 'top center';
-        } else {
-          top = Math.max(margin, topCandidateAbove);
-          origin = 'bottom center';
-        }
+        if (canBelow || (!canAbove && spaceBelow >= spaceAbove)) { top = Math.min(topCandidateBelow, vh - ph - margin); origin = 'top center'; }
+        else { top = Math.max(margin, topCandidateAbove); origin = 'bottom center'; }
       } else {
-        if (canAbove || (!canBelow && spaceAbove >= spaceBelow)) {
-          top = Math.max(margin, topCandidateAbove);
-          origin = 'bottom center';
-        } else {
-          top = Math.min(topCandidateBelow, vh - ph - margin);
-          origin = 'top center';
-        }
+        if (canAbove || (!canBelow && spaceAbove >= spaceBelow)) { top = Math.max(margin, topCandidateAbove); origin = 'bottom center'; }
+        else { top = Math.min(topCandidateBelow, vh - ph - margin); origin = 'top center'; }
       }
-
-      // Ekranga to‘liq sig‘ishi uchun clamp
       top = Math.max(margin, Math.min(top, vh - ph - margin));
-
       setPos({ top, left, width: pw, transformOrigin: origin });
-
-      // Ko‘rsatamiz
       panel.style.visibility = '';
       setReady(true);
     });
@@ -166,47 +113,22 @@ const AnchoredModal = ({
   }, [open, anchorRect, vw, vh, maxW, maxH]);
 
   if (!open) return null;
-
   return (
     <>
-      <div
-        data-block-nav="true"
-        onClick={onClose}
+      <div data-block-nav="true" onClick={onClose}
+        style={{ position:'fixed', inset:0, zIndex: zIndex - 10, background:'rgba(0,0,0,0.28)', backdropFilter:'blur(4px)', WebkitBackdropFilter:'blur(4px)' }} />
+      <div ref={panelRef} data-block-nav="true" role="dialog" aria-modal="true" onClick={(e)=>e.stopPropagation()}
         style={{
-          position: 'fixed', inset: 0, zIndex: zIndex - 10,
-          background: 'rgba(0,0,0,0.28)',
-          backdropFilter: 'blur(4px)',
-          WebkitBackdropFilter: 'blur(4px)'
-        }}
-      />
-      <div
-        ref={panelRef}
-        data-block-nav="true"
-        role="dialog"
-        aria-modal="true"
-        onClick={(e)=>e.stopPropagation()}
-        style={{
-          position: 'fixed',
-          top: pos.top,
-          left: pos.left,
+          position:'fixed', top:pos.top, left:pos.left,
           width: pos.width ? pos.width : 'auto',
           maxWidth: Math.min(maxW, vw - 24),
           maxHeight: typeof maxH === 'number' && maxH < 1 ? `${Math.floor(vh * maxH)}px` : (typeof maxH === 'number' ? `${Math.min(maxH, vh - 24)}px` : `${Math.floor(vh * 0.8)}px`),
-          zIndex,
-          background,
-          color: isDark ? '#f3f4f6' : '#111',
-          borderRadius: 16,
-          boxShadow: '0 12px 36px rgba(0,0,0,0.24)',
-          border: `1px solid ${border}`,
-          overflowY: 'auto',
-          WebkitOverflowScrolling: 'touch',
-          padding: 14,
-          transformOrigin: pos.transformOrigin,
-          transform: ready ? 'scale(1)' : 'scale(0.98)',
-          opacity: ready ? 1 : 0,
-          transition: 'opacity 120ms ease, transform 120ms ease'
-        }}
-      >
+          zIndex, background, color: isDark ? '#f3f4f6' : '#111',
+          borderRadius:16, boxShadow:'0 12px 36px rgba(0,0,0,0.24)', border:`1px solid ${border}`,
+          overflowY:'auto', WebkitOverflowScrolling:'touch', padding:14,
+          transformOrigin: pos.transformOrigin, transform: ready ? 'scale(1)' : 'scale(0.98)', opacity: ready ? 1 : 0,
+          transition:'opacity 120ms ease, transform 120ms ease'
+        }}>
         {children}
       </div>
     </>
@@ -224,7 +146,7 @@ const Reader = () => {
   const [currentPage, setCurrentPage] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  // Panellar
+  // Panels
   const [showSettings, setShowSettings] = useState(false);
   const [showJumpModal, setShowJumpModal] = useState(false);
   const [jumpInput, setJumpInput] = useState('');
@@ -232,37 +154,22 @@ const Reader = () => {
   const [showSearch, setShowSearch] = useState(false);
   const [showHighlights, setShowHighlights] = useState(false);
 
-  // Anchor rectlar (bosilgan tugma joyi)
+  // Anchors
   const [anchorSettings, setAnchorSettings] = useState(null);
   const [anchorSearch, setAnchorSearch] = useState(null);
   const [anchorReadList, setAnchorReadList] = useState(null);
   const [anchorHighlights, setAnchorHighlights] = useState(null);
 
-  // UI settings
-  const [fontSize, setFontSize] = useState(() => {
-    const saved = localStorage.getItem('fontSize');
-    return saved ? parseInt(saved, 10) : 16;
-  });
+  // UI
+  const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('fontSize') || '16', 10));
   const [fontFamily, setFontFamily] = useState(() => localStorage.getItem('fontFamily') || 'Times New Roman');
   const [background, setBackground] = useState(() => localStorage.getItem('background') || '#ffffff');
-  const [brightness, setBrightness] = useState(() => {
-    const saved = localStorage.getItem('brightness');
-    return saved ? parseInt(saved, 10) : 100;
-  });
+  const [brightness, setBrightness] = useState(() => parseInt(localStorage.getItem('brightness') || '100', 10));
 
-  // Tipografiya
-  const [pageMargin, setPageMargin] = useState(() => {
-    const v = localStorage.getItem('pageMargin');
-    return v !== null ? Number(v) : 24;
-  });
-  const [wordSpacing, setWordSpacing] = useState(() => {
-    const v = localStorage.getItem('wordSpacing');
-    return v !== null ? Number(v) : 0;
-  });
-  const [letterSpacing, setLetterSpacing] = useState(() => {
-    const v = localStorage.getItem('letterSpacing');
-    return v !== null ? Number(v) : 0;
-  });
+  // Typography
+  const [pageMargin, setPageMargin] = useState(() => Number(localStorage.getItem('pageMargin') ?? 24));
+  const [wordSpacing, setWordSpacing] = useState(() => Number(localStorage.getItem('wordSpacing') ?? 0));
+  const [letterSpacing, setLetterSpacing] = useState(() => Number(localStorage.getItem('letterSpacing') ?? 0));
 
   // Flow
   const [flow, setFlow] = useState(() => {
@@ -271,13 +178,11 @@ const Reader = () => {
   });
   useEffect(() => { localStorage.setItem('readFlow', flow); }, [flow]);
 
-  // O‘qilgan sahifalar
+  // Read flags
   const [readPages, setReadPages] = useState(() => {
     try {
       const saved = localStorage.getItem(`read-${bookId}`);
-      if (!saved) return new Set();
-      const arr = JSON.parse(saved);
-      return new Set(Array.isArray(arr) ? arr : []);
+      return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch { return new Set(); }
   });
   useEffect(() => {
@@ -288,66 +193,44 @@ const Reader = () => {
   const progress = totalPages ? Math.floor((readPages.size / totalPages) * 100) : 0;
   const isCurrentRead = readPages.has(currentPage);
 
-  const markReadUpToCurrent = () => {
+  const markReadUpTo = (toIdx) => {
+    if (toIdx == null || toIdx < 0) return;
     setReadPages(prev => {
       const next = new Set(prev);
-      for (let i = 0; i <= currentPage; i++) next.add(i);
+      for (let i = 0; i <= Math.min(toIdx, pages.length - 1); i++) next.add(i);
       return next;
     });
   };
-  const allUpToCurrentRead = (() => {
-    for (let i = 0; i <= currentPage; i++) if (!readPages.has(i)) return false;
-    return true;
-  })();
+  const markReadUpToCurrent = () => markReadUpTo(currentPage);
+
+  const allUpToCurrentRead = (() => { for (let i = 0; i <= currentPage; i++) if (!readPages.has(i)) return false; return true; })();
 
   const isColorDark = (hex) => {
     try {
       if (!hex) return false;
       let c = hex.replace('#','');
       if (c.length === 3) c = c.split('').map(ch => ch + ch).join('');
-      const r = parseInt(c.slice(0,2),16);
-      const g = parseInt(c.slice(2,4),16);
-      const b = parseInt(c.slice(4,6),16);
+      const r = parseInt(c.slice(0,2),16), g = parseInt(c.slice(2,4),16), b = parseInt(c.slice(4,6),16);
       const br = (r*299 + g*587 + b*114) / 1000;
       return br < 140;
     } catch { return false; }
   };
+  const clearAllRead = () => { if (confirm('Barcha o‘qilgan belgilari o‘chirilsinmi?')) setReadPages(new Set()); };
 
-  const clearAllRead = () => {
-    if (confirm('Barcha o‘qilgan belgilari o‘chirilsinmi?')) setReadPages(new Set());
-  };
-
-  // Qidiruv flash
+  // Search flash
   const [searchFlash, setSearchFlash] = useState({ page: null, ranges: [] });
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState([]);
   const findAllRanges = useCallback((text, q) => {
     if (!text || !q) return [];
-    const tlc = text.toLowerCase();
-    const qlc = q.toLowerCase();
-    const out = [];
-    let i = 0;
-    while (true) {
-      const idx = tlc.indexOf(qlc, i);
-      if (idx === -1) break;
-      out.push({ start: idx, end: idx + q.length });
-      i = idx + q.length;
-    }
+    const tlc = text.toLowerCase(), qlc = q.toLowerCase();
+    const out = []; let i = 0;
+    while (true) { const idx = tlc.indexOf(qlc, i); if (idx === -1) break; out.push({ start: idx, end: idx + q.length }); i = idx + q.length; }
     return out;
   }, []);
 
-  // LS
-  useEffect(() => {
-    const s1 = localStorage.getItem('fontSize');
-    const s2 = localStorage.getItem('fontFamily');
-    const s3 = localStorage.getItem('background');
-    const s4 = localStorage.getItem('brightness');
-    if (s1) setFontSize(parseInt(s1, 10));
-    if (s2) setFontFamily(s2);
-    if (s3) setBackground(s3);
-    if (s4) setBrightness(parseInt(s4, 10));
-  }, []);
+  // Persist UI
   useEffect(() => {
     localStorage.setItem('fontSize', String(fontSize));
     localStorage.setItem('fontFamily', fontFamily);
@@ -358,7 +241,7 @@ const Reader = () => {
   useEffect(() => { localStorage.setItem('wordSpacing', String(wordSpacing)); }, [wordSpacing]);
   useEffect(() => { localStorage.setItem('letterSpacing', String(letterSpacing)); }, [letterSpacing]);
 
-  // Sahifalarni yuklash
+  // Load pages
   useEffect(() => {
     tg.ready();
     loadFormattedPdfPages('/books/test.pdf')
@@ -372,60 +255,35 @@ const Reader = () => {
       })
       .finally(() => setLoading(false));
   }, []);
-  useEffect(() => {
-    if (pages.length > 0) localStorage.setItem(`lastPage-${bookId}`, String(currentPage));
-  }, [currentPage, pages]);
+  useEffect(() => { if (pages.length > 0) localStorage.setItem(`lastPage-${bookId}`, String(currentPage)); }, [currentPage, pages]);
 
   // X overflow guard
   useEffect(() => {
-    document.body.style.overflowX = 'hidden';
-    document.documentElement.style.overflowX = 'hidden';
-    return () => {
-      document.body.style.overflowX = '';
-      document.documentElement.style.overflowX = '';
-    };
+    document.body.style.overflowX = 'hidden'; document.documentElement.style.overflowX = 'hidden';
+    return () => { document.body.style.overflowX = ''; document.documentElement.style.overflowX = ''; };
   }, []);
 
   // ======== HIGHLIGHT ========
-  const textWrapRef = useRef(null);
+  const textWrapRef = useRef(null);     // horizontal page text
+  const verticalRootRef = useRef(null);
+  const pageRefs = useRef([]);
   const [highlights, setHighlights] = useState(() => {
-    try {
-      const raw = localStorage.getItem(HL_KEY(bookId));
-      return raw ? JSON.parse(raw) : [];
-    } catch { return []; }
+    try { const raw = localStorage.getItem(HL_KEY(bookId)); return raw ? JSON.parse(raw) : []; }
+    catch { return []; }
   });
-  useEffect(() => {
-    localStorage.setItem(HL_KEY(bookId), JSON.stringify(highlights));
-  }, [highlights]);
+  useEffect(() => { localStorage.setItem(HL_KEY(bookId), JSON.stringify(highlights)); }, [highlights]);
 
-  const [hlMenu, setHlMenu] = useState({
-    visible: false, x: 0, y: 0,
-    mode: 'add',
-    targetHighlightId: null
-  });
+  const [hlMenu, setHlMenu] = useState({ visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null });
 
   useEffect(() => {
     const onKey = (ev) => {
-      if (ev.key === 'Escape') {
-        setHlMenu(m => ({ ...m, visible: false }));
-        window.getSelection()?.removeAllRanges();
-      }
-    };
-    const onSelectionChange = () => {
-      const sel = window.getSelection?.();
-      if (!sel || sel.isCollapsed) {
-        setHlMenu(m => ({ ...m, visible: false }));
-      }
+      if (ev.key === 'Escape') { setHlMenu(m => ({ ...m, visible: false })); window.getSelection()?.removeAllRanges(); }
     };
     window.addEventListener('keydown', onKey);
-    document.addEventListener('selectionchange', onSelectionChange);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      document.removeEventListener('selectionchange', onSelectionChange);
-    };
+    return () => { window.removeEventListener('keydown', onKey); };
   }, []);
 
-  const selectionOffsetsRef = useRef({ start: null, end: null });
+  const selectionOffsetsRef = useRef({ start: null, end: null, page: null });
 
   const getTextOffset = (root, node, nodeOffset) => {
     let offset = 0;
@@ -459,8 +317,7 @@ const Reader = () => {
   };
 
   const addHighlight = (page, start, end, color = '#fff59d') => {
-    let ns = Math.min(start, end);
-    let ne = Math.max(start, end);
+    let ns = Math.min(start, end), ne = Math.max(start, end);
     const text = pages[page] || '';
     const slice = text.slice(ns, ne);
     if (!slice || !slice.trim()) {
@@ -471,9 +328,7 @@ const Reader = () => {
     setHighlights(prev => {
       const keepOther = prev.filter(h => h.page !== page);
       const samePage  = prev.filter(h => h.page === page);
-      for (const h of samePage) {
-        if (h.start <= ns && ne <= h.end) return prev;
-      }
+      for (const h of samePage) { if (h.start <= ns && ne <= h.end) return prev; }
       const blocks = [...samePage, { start: ns, end: ne }];
       const merged = mergePageRanges(blocks);
       const normalized = merged.map(r => ({
@@ -483,22 +338,23 @@ const Reader = () => {
       return [...keepOther, ...normalized];
     });
     setHlMenu({ visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null });
-    selectionOffsetsRef.current = { start: null, end: null };
+    selectionOffsetsRef.current = { start: null, end: null, page: null };
     window.getSelection()?.removeAllRanges();
   };
-  const removeHighlight = (id) => {
-    setHighlights(prev => prev.filter(h => h.id !== id));
-    setHlMenu({ visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null });
-  };
+  const removeHighlight = (id) => { setHighlights(prev => prev.filter(h => h.id !== id)); setHlMenu({ visible:false, x:0, y:0, mode:'add', targetHighlightId:null }); };
 
   const showAddMenuForSelection = () => {
-    if (!textWrapRef.current) return;
-    const off = getSelectionOffsetsWithin(textWrapRef.current);
-    if (!off) {
-      setHlMenu(m => ({ ...m, visible: false }));
-      return;
+    const sel = window.getSelection?.(); if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
+    let root = textWrapRef.current; let pageIdx = currentPage;
+    if (flow === 'vertical') {
+      let node = sel.anchorNode;
+      if (node && node.nodeType === 3) node = node.parentNode;
+      const pageEl = node?.closest?.('[data-page-idx]');
+      if (pageEl) { root = pageEl; pageIdx = parseInt(pageEl.getAttribute('data-page-idx'), 10); }
     }
-    selectionOffsetsRef.current = { start: off.start, end: off.end };
+    if (!root) return;
+    const off = getSelectionOffsetsWithin(root); if (!off) return;
+    selectionOffsetsRef.current = { start: off.start, end: off.end, page: pageIdx };
     const pageRect = document.body.getBoundingClientRect();
     const mx = off.rect.left + off.rect.width / 2 - pageRect.left;
     const my = off.rect.top - pageRect.top - 8;
@@ -525,113 +381,38 @@ const Reader = () => {
   };
 
   const [flashId, setFlashId] = useState(null);
-  const renderWithHighlights = (text, pageIndex) => {
-    const base = highlights
-      .filter(h => h.page === pageIndex)
-      .map(h => ({ ...h, isFlash: h.id === flashId }));
-
-    const flashes = (searchFlash.page === pageIndex)
-      ? searchFlash.ranges.map((r, i) => ({
-          id: `sf-${i}`,
-          page: pageIndex,
-          start: r.start,
-          end: r.end,
-          color: '#fff1a6',
-          isFlash: true
-        }))
-      : [];
-
-    const pageHls = [...base, ...flashes].sort((a,b) => a.start - b.start || a.end - b.end);
-    if (pageHls.length === 0) return hyphenateVisible(text);
-
-    const out = [];
-    let cursor = 0;
-
-    for (const h of pageHls) {
-      let s = Math.max(0, Math.min(text.length, h.start));
-      let e = Math.max(0, Math.min(text.length, h.end));
-      if (e <= cursor) continue;
-      if (s < cursor) s = cursor;
-
-      if (cursor < s) out.push(hyphenateVisible(text.slice(cursor, s)));
-      out.push(
-        <mark
-          key={`${h.id}-${s}-${e}`}
-          data-block-nav="true"
-          onMouseDown={(e)=>e.stopPropagation()}
-          onTouchStart={(e)=>e.stopPropagation()}
-          onClick={(e)=>!h.isFlash && showRemoveMenuFor(e, h.id)}
-          style={{
-            background: h.color || '#fff59d',
-            padding: '0 0.5px',
-            borderRadius: '2px',
-            wordSpacing: `${wordSpacing}px`,
-            letterSpacing: `${letterSpacing}px`,
-            outline: h.isFlash ? '2px solid rgba(251, 191, 36, 0.95)' : 'none',
-            boxShadow: h.isFlash ? '0 0 0 4px rgba(251, 191, 36, 0.25)' : 'none',
-            transition: 'outline 180ms ease, box-shadow 180ms ease',
-            cursor: h.isFlash ? 'default' : 'pointer'
-          }}
-        >
-          {hyphenateVisible(text.slice(s, e))}
-        </mark>
-      );
-      cursor = e;
-    }
-    if (cursor < text.length) out.push(hyphenateVisible(text.slice(cursor)));
-    return out;
-  };
+  const [hlFilter, setHlFilter] = useState('');
 
   const rangesOverlap = (aStart, aEnd, bStart, bEnd) => !(aEnd <= bStart || bEnd <= aStart);
   const mergePageRanges = (items) => {
     if (!items.length) return [];
     const sorted = [...items].sort((x, y) => x.start - y.start || x.end - y.end);
-    const out = [];
-    let cur = { ...sorted[0] };
+    const out = []; let cur = { ...sorted[0] };
     for (let i = 1; i < sorted.length; i++) {
       const h = sorted[i];
-      if (rangesOverlap(cur.start, cur.end, h.start, h.end) || cur.end === h.start) {
-        cur.start = Math.min(cur.start, h.start);
-        cur.end   = Math.max(cur.end,   h.end);
-      } else {
-        out.push(cur);
-        cur = { ...h };
-      }
+      if (rangesOverlap(cur.start, cur.end, h.start, h.end) || cur.end === h.start) { cur.start = Math.min(cur.start, h.start); cur.end = Math.max(cur.end, h.end); }
+      else { out.push(cur); cur = { ...h }; }
     }
-    out.push(cur);
-    return out;
+    out.push(cur); return out;
   };
 
-  // Drag nav
+  /* ====================== Swipe / Drag (horizontal only) ====================== */
   const outerRef = useRef(null);
   const pageAreaRef = useRef(null);
-  const startX = useRef(0);
-  const startY = useRef(0);
+  const startX = useRef(0), startY = useRef(0);
   const draggingAxis = useRef(null);
   const pointerActive = useRef(false);
   const [pageBoxH, setPageBoxH] = useState(null);
 
-  const [drag, setDrag] = useState({
-    active: false,
-    delta: 0,
-    committing: false,
-    target: null,
-    dir: null,
-  });
-
+  const [drag, setDrag] = useState({ active:false, delta:0, committing:false, target:null, dir:null });
   const dimsRef = useRef({ w: 0, h: 0 });
   const measure = useCallback(() => {
     const r = pageAreaRef.current?.getBoundingClientRect();
     if (!r) return;
     dimsRef.current = { w: Math.max(1, r.width), h: Math.max(1, r.height) };
   }, []);
-  useEffect(() => {
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [measure]);
+  useEffect(() => { measure(); window.addEventListener('resize', measure); return () => window.removeEventListener('resize', measure); }, [measure]);
 
-  const [hlFilter, setHlFilter] = useState('');
   const guardBlocked = useCallback(
     () => showSettings || showJumpModal || showSearch || showReadList || showHighlights || hlMenu.visible,
     [showSettings, showJumpModal, showSearch, showReadList, showHighlights, hlMenu.visible]
@@ -640,6 +421,7 @@ const Reader = () => {
   const navBusy = drag.active || drag.committing;
 
   const begin = useCallback((x, y, targetEl) => {
+    if (flow === 'vertical') return; // swipe yo‘q
     if (guardBlocked() || navBusy) return;
     if (shouldBlockFromTarget(targetEl)) return;
     measure();
@@ -647,30 +429,28 @@ const Reader = () => {
       const h = Math.ceil(textWrapRef.current.getBoundingClientRect().height);
       if (h) setPageBoxH(h);
     }
-    startX.current = x;
-    startY.current = y;
+    startX.current = x; startY.current = y;
     draggingAxis.current = null;
-    setDrag(d => ({ ...d, active: true, delta: 0, committing: false, target: null, dir: null }));
-  }, [guardBlocked, navBusy, measure]);
+    setDrag(d => ({ ...d, active:false, delta:0, committing:false, target:null, dir:null }));
+  }, [guardBlocked, navBusy, measure, flow]);
 
   const move = useCallback((x, y) => {
-    if (!drag.active || drag.committing) return;
-    const dx = x - startX.current;
-    const dy = y - startY.current;
+    if (flow === 'vertical' || drag.committing) return;
+    const dx = x - startX.current, dy = y - startY.current;
     if (!draggingAxis.current) {
       const ax = Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical';
       if ((ax === 'horizontal' && Math.abs(dx) < 8) || (ax === 'vertical' && Math.abs(dy) < 8)) return;
       draggingAxis.current = ax;
     }
-    if (flow === 'horizontal' && draggingAxis.current !== 'horizontal') return;
-    if (flow === 'vertical' && draggingAxis.current !== 'vertical') return;
+    if (draggingAxis.current !== 'horizontal') return;
 
-    const { w, h } = dimsRef.current;
-    const size = flow === 'horizontal' ? w : h;
-    const rawDelta = flow === 'horizontal' ? dx : dy;
+    if (!drag.active) setDrag(d => ({ ...d, active:true }));
 
-    let dir = null;
-    let target = null;
+    const { w } = dimsRef.current;
+    const size = w;
+    const rawDelta = dx;
+
+    let dir = null, target = null;
     if (rawDelta < 0 && currentPage + 1 < pages.length) { dir = 'next'; target = currentPage + 1; }
     else if (rawDelta > 0 && currentPage - 1 >= 0) { dir = 'prev'; target = currentPage - 1; }
 
@@ -678,28 +458,31 @@ const Reader = () => {
     const maxShift = size;
     delta = Math.max(-maxShift, Math.min(delta, maxShift));
     setDrag(d => ({ ...d, delta, target, dir }));
-  }, [drag.active, drag.committing, flow, currentPage, pages.length]);
+  }, [drag.committing, drag.active, flow, currentPage, pages.length]);
 
   const commitOrRevert = useCallback(() => {
-    if (!drag.active || drag.committing) return;
-    const { w, h } = dimsRef.current;
-    const size = flow === 'horizontal' ? w : h;
+    // tanlov bo‘lsa — menyu
+    setTimeout(() => showAddMenuForSelection(), 0);
+
+    if (flow === 'vertical' || !drag.active || drag.committing) {
+      setDrag({ active:false, delta:0, committing:false, target:null, dir:null });
+      setPageBoxH(null);
+      return;
+    }
+    const { w } = dimsRef.current;
+    const size = w;
     const threshold = Math.max(60, size * 0.2);
-    if (textWrapRef.current) setTimeout(() => showAddMenuForSelection(), 0);
 
     if (drag.target != null && Math.abs(drag.delta) >= threshold) {
-      setDrag(d => ({ ...d, committing: true, delta: d.dir === 'next' ? -size : size }));
+      setDrag(d => ({ ...d, committing:true, delta: d.dir === 'next' ? -size : size }));
       setTimeout(() => {
         setCurrentPage(drag.target);
-        setDrag({ active: false, delta: 0, committing: false, target: null, dir: null });
+        setDrag({ active:false, delta:0, committing:false, target:null, dir:null });
         setPageBoxH(null);
-      }, 280);
+      }, 260);
     } else {
-      setDrag(d => ({ ...d, committing: true, delta: 0 }));
-      setTimeout(() => {
-        setDrag({ active: false, delta: 0, committing: false, target: null, dir: null });
-        setPageBoxH(null);
-      }, 240);
+      setDrag(d => ({ ...d, committing:true, delta:0 }));
+      setTimeout(() => { setDrag({ active:false, delta:0, committing:false, target:null, dir:null }); setPageBoxH(null); }, 220);
     }
   }, [drag.active, drag.committing, drag.delta, drag.target, drag.dir, flow]);
 
@@ -712,66 +495,59 @@ const Reader = () => {
 
   const jumpInstant = useCallback((toIndex) => {
     if (toIndex < 0 || toIndex >= pages.length || toIndex === currentPage) return;
-    const { w, h } = dimsRef.current;
-    const size = flow === 'horizontal' ? w : h;
+    const { w } = dimsRef.current;
+    const size = w;
     const dir = toIndex > currentPage ? 'next' : 'prev';
     const startDelta = dir === 'next' ? -size : size;
-    setDrag({ active: true, delta: startDelta, committing: true, target: toIndex, dir });
-    setTimeout(() => {
-      setCurrentPage(toIndex);
-      setDrag({ active: false, delta: 0, committing: false, target: null, dir: null });
-    }, 260);
-  }, [currentPage, pages.length, flow]);
+    setDrag({ active:true, delta:startDelta, committing:true, target:toIndex, dir });
+    setTimeout(() => { setCurrentPage(toIndex); setDrag({ active:false, delta:0, committing:false, target:null, dir:null }); }, 240);
+  }, [currentPage, pages.length]);
 
   const onKeyDown = useCallback((e) => {
-    if (guardBlocked() || navBusy) return;
+    if (guardBlocked() || (drag.active || drag.committing)) return;
     if (flow === 'horizontal') {
       if (e.key === 'ArrowRight') jumpInstant(currentPage + 1);
       if (e.key === 'ArrowLeft')  jumpInstant(currentPage - 1);
     } else {
-      if (e.key === 'ArrowDown')  jumpInstant(currentPage + 1);
-      if (e.key === 'ArrowUp')    jumpInstant(currentPage - 1);
+      if (e.key.toLowerCase() === 'r') markReadUpToCurrent();
     }
-    if (e.key.toLowerCase() === 'r') markReadUpToCurrent();
-  }, [guardBlocked, navBusy, flow, currentPage, jumpInstant]);
+  }, [guardBlocked, drag.active, drag.committing, flow, currentPage, jumpInstant]);
 
-  // Qidiruv
+  // Search
   const makeSnippet = (text, pos, qlen) => {
-    const start = Math.max(0, pos - 40);
-    const end = Math.min(text.length, pos + qlen + 40);
+    const start = Math.max(0, pos - 40), end = Math.min(text.length, pos + qlen + 40);
     const raw = text.slice(start, end).replace(/\s+/g, ' ').trim();
     return `${start > 0 ? '… ' : ''}${raw}${end < text.length ? ' …' : ''}`;
   };
   const runSearch = () => {
-    const q = query.trim();
-    if (!q) { setResults([]); return; }
+    const q = query.trim(); if (!q) { setResults([]); return; }
     setSearching(true);
-    const qlc = q.toLowerCase();
-    const found = [];
+    const qlc = q.toLowerCase(); const found = [];
     for (let i = 0; i < pages.length; i++) {
-      const t = (pages[i] || '').toString();
-      const tlc = t.toLowerCase();
-      const idx = tlc.indexOf(qlc);
+      const t = (pages[i] || '').toString(); const tlc = t.toLowerCase(); const idx = tlc.indexOf(qlc);
       if (idx !== -1) found.push({ page: i, snippet: makeSnippet(t, idx, q.length) });
     }
-    setResults(found);
-    setSearching(false);
+    setResults(found); setSearching(false);
   };
   const jumpToResult = (p) => {
-    const q = query.trim();
-    setCurrentPage(p);
-    setShowSearch(false);
-    setQuery('');
-    setResults([]);
-    if (q) {
-      const ranges = findAllRanges(pages[p] || '', q);
-      setSearchFlash({ page: p, ranges });
-      setTimeout(() => setSearchFlash({ page: null, ranges: [] }), 1800);
-    }
+    const q = query.trim(); setCurrentPage(p); setShowSearch(false); setQuery(''); setResults([]);
+    if (q) { const ranges = findAllRanges(pages[p] || '', q); setSearchFlash({ page:p, ranges }); setTimeout(() => setSearchFlash({ page:null, ranges:[] }), 1800); }
   };
 
-  // Bottom-sheet autoscroll — O‘CHIRILGAN (endilikda anchored modal)
-  useEffect(() => {}, [showSettings, showSearch, showReadList, showHighlights]);
+  // Vertical: update currentPage on scroll
+  useEffect(() => {
+    if (flow !== 'vertical') return;
+    const obs = new IntersectionObserver((entries) => {
+      let best = null;
+      for (const e of entries) if (e.isIntersecting) { if (!best || e.intersectionRatio > best.intersectionRatio) best = e; }
+      if (best) {
+        const idx = Number(best.target.getAttribute('data-page-idx'));
+        setCurrentPage((p) => (p !== idx ? idx : p));
+      }
+    }, { root: null, threshold: [0.15, 0.35, 0.55, 0.75] });
+    pageRefs.current.forEach(el => el && obs.observe(el));
+    return () => obs.disconnect();
+  }, [flow, pages.length]);
 
   if (loading) {
     return (
@@ -805,14 +581,14 @@ const Reader = () => {
     lineHeight: '1.8',
     fontSize: `${fontSize}px`,
     fontFamily: fontFamily,
-    margin: '0 auto 3.6rem',
+    margin: '0 auto 2rem',
     maxWidth: 'clamp(52ch, 92vw, 74ch)',
     padding: `${safePageMargin}px`,
     wordSpacing: `${safeWordSpacing}px`,
     letterSpacing: `${safeLetterSpacing}px`,
     overflowX: 'hidden',
     maxInlineSize: '100%',
-    userSelect: 'text',
+    userSelect: drag.active ? 'none' : 'text',
     textAlign: 'justify',
     textJustify: 'inter-character',
     hyphens: 'auto',
@@ -822,12 +598,30 @@ const Reader = () => {
     fontKerning: 'normal',
     textWrap: 'pretty',
     backgroundColor: 'transparent',
-    borderRadius: '12px',
+    borderRadius: '12px'
   };
 
-  const axis = flow === 'horizontal' ? 'X' : 'Y';
-  const { w, h } = dimsRef.current;
-  const size = flow === 'horizontal' ? w : h;
+  const makeHlSnippet = (text, start, end, pad = 40) => {
+    const s = Math.max(0, start - pad), e = Math.min(text.length, end + pad);
+    const raw = text.slice(s, e).replace(/\s+/g, ' ').trim();
+    return `${s > 0 ? '… ' : ''}${raw}${e < text.length ? ' …' : ''}`;
+  };
+  const preparedHls = (() => {
+    const arr = [...highlights].sort((a,b) => (a.page - b.page) || (a.start - b.start));
+    const mapped = arr.map(h => { const text = pages[h.page] || ''; return { ...h, snippet: makeHlSnippet(text, h.start, h.end) }; });
+    const q = hlFilter.trim().toLowerCase(); if (!q) return mapped;
+    return mapped.filter(x => x.snippet.toLowerCase().includes(q));
+  })();
+
+  const openWithAnchor = (e, setAnchor, setOpen, topFallback = 80) => {
+    const rect = e?.currentTarget ? rectFrom(e.currentTarget) : fallbackAnchor(topFallback);
+    setAnchor(rect || fallbackAnchor(topFallback)); setOpen(true);
+  };
+
+  // transforms for horizontal swipe
+  const axis = 'X';
+  const { w } = dimsRef.current;
+  const size = w;
 
   let currTransform = `translate${axis}(${drag.active || drag.committing ? drag.delta : 0}px)`;
   let previewTransform = null;
@@ -840,30 +634,48 @@ const Reader = () => {
   const transitionStyle = drag.committing ? 'transform 260ms ease' : 'none';
   const layerBase = { position: 'absolute', inset: 0, overflow: 'hidden', willChange: 'transform' };
 
-  const makeHlSnippet = (text, start, end, pad = 40) => {
-    const s = Math.max(0, start - pad);
-    const e = Math.min(text.length, end + pad);
-    const raw = text.slice(s, e).replace(/\s+/g, ' ').trim();
-    const head = s > 0 ? '… ' : '';
-    const tail = e < text.length ? ' …' : '';
-    return `${head}${raw}${tail}`;
-  };
-  const preparedHls = (() => {
-    const arr = [...highlights].sort((a,b) => (a.page - b.page) || (a.start - b.start));
-    const mapped = arr.map(h => {
-      const text = pages[h.page] || '';
-      return { ...h, snippet: makeHlSnippet(text, h.start, h.end) };
-    });
-    const q = hlFilter.trim().toLowerCase();
-    if (!q) return mapped;
-    return mapped.filter(x => x.snippet.toLowerCase().includes(q));
-  })();
+  const markCommonProps = { 'data-block-nav':'true', 'data-hl':'true' };
 
-  // Trigger helper (olingan elementdan anchor saqlaymiz)
-  const openWithAnchor = (e, setAnchor, setOpen, topFallback = 80) => {
-    const rect = e?.currentTarget ? rectFrom(e.currentTarget) : fallbackAnchor(topFallback);
-    setAnchor(rect || fallbackAnchor(topFallback));
-    setOpen(true);
+  const renderWithHighlights = (text, pageIndex) => {
+    const base = highlights.filter(h => h.page === pageIndex).map(h => ({ ...h, isFlash: h.id === flashId }));
+    const flashes = (searchFlash.page === pageIndex)
+      ? searchFlash.ranges.map((r, i) => ({ id:`sf-${i}`, page:pageIndex, start:r.start, end:r.end, color:'#fff1a6', isFlash:true }))
+      : [];
+    const pageHls = [...base, ...flashes].sort((a,b) => a.start - b.start || a.end - b.end);
+    if (pageHls.length === 0) return hyphenateVisible(text);
+    const out = []; let cursor = 0;
+    for (const h of pageHls) {
+      let s = Math.max(0, Math.min(text.length, h.start));
+      let e = Math.max(0, Math.min(text.length, h.end));
+      if (e <= cursor) continue;
+      if (s < cursor) s = cursor;
+      if (cursor < s) out.push(hyphenateVisible(text.slice(cursor, s)));
+      out.push(
+        <mark
+          key={`${h.id}-${s}-${e}`}
+          {...markCommonProps}
+          onMouseDown={(e)=>e.stopPropagation()}
+          onTouchStart={(e)=>e.stopPropagation()}
+          onClick={(e)=>!h.isFlash && showRemoveMenuFor(e, h.id)}
+          style={{
+            background: h.color || '#fff59d',
+            padding: '0 0.5px',
+            borderRadius: '2px',
+            wordSpacing: `${wordSpacing}px`,
+            letterSpacing: `${letterSpacing}px`,
+            outline: h.isFlash ? '2px solid rgba(251,191,36,0.95)' : 'none',
+            boxShadow: h.isFlash ? '0 0 0 4px rgba(251,191,36,0.25)' : 'none',
+            transition: 'outline 180ms ease, box-shadow 180ms ease',
+            cursor: h.isFlash ? 'default' : 'pointer'
+          }}
+        >
+          {hyphenateVisible(text.slice(s, e))}
+        </mark>
+      );
+      cursor = e;
+    }
+    if (cursor < text.length) out.push(hyphenateVisible(text.slice(cursor)));
+    return out;
   };
 
   return (
@@ -881,7 +693,7 @@ const Reader = () => {
         transition: 'filter 0.3s ease',
         position: 'relative',
         overflowX: 'hidden',
-        overscrollBehavior: 'none',
+        overscrollBehavior: flow === 'vertical' ? 'auto' : 'none',
       }}
       onClick={(e) => {
         if (hlMenu.visible && !e.target.closest?.('[data-hl-menu]')) {
@@ -889,66 +701,29 @@ const Reader = () => {
         }
       }}
     >
-      {/* TOP BAR (sticky) */}
-      <div
-        data-block-nav="true"
-        style={{
-          position:'sticky', top:0, zIndex:50,
-          display:'flex', justifyContent:'space-between', alignItems:'center',
-          paddingBottom:8, marginTop:-8,
-        }}
-      >
-        <button
-          data-block-nav="true"
-          onClick={(e)=>{e.stopPropagation(); navigate('/');}}
-          title="Orqaga"
-          style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}
-        >
+      {/* TOP BAR */}
+      <div data-block-nav="true"
+        style={{ position:'sticky', top:0, zIndex:50, display:'flex', justifyContent:'space-between', alignItems:'center', paddingBottom:8, marginTop:-8 }}>
+        <button data-block-nav="true" onClick={(e)=>{e.stopPropagation(); navigate('/');}} title="Orqaga"
+          style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}>
           <IoChevronBack size={24} color={iconColor} />
         </button>
 
-        {/* Progress pill — READ LIST ochadi (ANCHOR: pill o‘zi) */}
-        <button
-          data-block-nav="true"
+        <button data-block-nav="true"
           onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorReadList, setShowReadList, 72); }}
           title="O‘qilgan sahifalar"
-          style={{
-            fontSize:12, padding:'6px 10px', borderRadius:999, border:`1px solid ${border}`,
-            background:isDark?'#1b1b1b':'#f8f8f8', color:isDark?'#f3f4f6':'#111',
-            minWidth:44, textAlign:'center', userSelect:'none', cursor:'pointer', marginLeft:'80px',
-          }}
-        >
+          style={{ fontSize:12, padding:'6px 10px', borderRadius:999, border:`1px solid ${border}`, background:isDark?'#1b1b1b':'#f8f8f8', color:isDark?'#f3f4f6':'#111', minWidth:44, textAlign:'center', userSelect:'none', cursor:'pointer', marginLeft:'80px' }}>
           {progress}%
         </button>
 
         <div data-block-nav="true" style={{ display:'flex', gap:12, alignItems:'center' }}>
-          {/* Highlights list (ANCHOR: tugma) */}
-          <button
-            data-block-nav="true"
-            onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorHighlights, setShowHighlights, 76); }}
-            title="Belgilangan joylar"
-            style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}
-          >
+          <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorHighlights, setShowHighlights, 76); }} title="Belgilangan joylar" style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}>
             <IoBookmark size={22} color={iconColor} />
           </button>
-
-          {/* Search (ANCHOR: tugma) */}
-          <button
-            data-block-nav="true"
-            onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorSearch, setShowSearch, 76); }}
-            title="Qidiruv"
-            style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}
-          >
+          <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorSearch, setShowSearch, 76); }} title="Qidiruv" style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}>
             <IoSearchSharp size={22} color={iconColor} />
           </button>
-
-          {/* Settings (ANCHOR: tugma) */}
-          <button
-            data-block-nav="true"
-            onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorSettings, setShowSettings, 84); }}
-            title="Sozlamalar"
-            style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}
-          >
+          <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorSettings, setShowSettings, 84); }} title="Sozlamalar" style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}>
             <IoSettingsSharp size={24} color={iconColor} />
           </button>
         </div>
@@ -971,76 +746,121 @@ const Reader = () => {
         </div>
       )}
 
-      {/* ======= PAGE AREA (drag + pointer/touch) ======= */}
-      <div
-        ref={pageAreaRef}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        style={{
-          position:'relative',
-          minHeight:'40vh',
-          height: (drag.active || drag.committing) && pageBoxH ? `${pageBoxH}px` : 'auto',
-          touchAction: flow === 'horizontal' ? 'pan-y' : 'pan-x',
-        }}
-      >
-        {/* Normal holat */}
-        {!(drag.active || drag.committing) && (
-          <pre
-            className="reader-text"
-            ref={textWrapRef}
-            onMouseUp={(e)=>{ if (textWrapRef.current?.contains(e.target)) showAddMenuForSelection(); }}
-            lang={langAttr}
-            style={pageTextStyle}
-          >
-            {renderWithHighlights(pages[currentPage] || '', currentPage)}
-          </pre>
-        )}
-
-        {/* Drag/Commit holatida: ikki qatlam */}
-        {(drag.active || drag.committing) && (
-          <>
-            <div style={{ ...layerBase, transform: currTransform, transition: transitionStyle }}>
-              <pre className="reader-text" lang={langAttr} style={pageTextStyle} ref={textWrapRef}>
-                {renderWithHighlights(pages[currentPage] || '', currentPage)}
+      {/* ======= CONTENT RENDER ======= */}
+      {flow === 'vertical' ? (
+        // VERTICAL: to‘liq skroll, har sahifada markaziy HUD
+        <div ref={verticalRootRef}>
+          {pages.map((txt, idx) => (
+            <div key={idx} data-page-idx={idx} ref={el => (pageRefs.current[idx] = el)} style={{ position:'relative', marginBottom:'1rem' }}>
+              <pre
+                className="reader-text"
+                lang={langAttr}
+                onMouseUp={(e)=>{ if (e.target.closest('[data-hl="true"]')) return; showAddMenuForSelection(); }}
+                style={pageTextStyle}
+              >
+                {renderWithHighlights(txt || '', idx)}
               </pre>
-            </div>
 
-            {previewIndex != null && (
-              <div style={{ ...layerBase, transform: previewTransform, transition: transitionStyle }}>
-                <pre className="reader-text" lang={langAttr} style={pageTextStyle}>
-                  {renderWithHighlights(pages[previewIndex] || '', previewIndex)}
+              {/* Per-page HUD (CENTER, separate block — textni bosib turmaydi) */}
+              <div data-block-nav="true"
+                   style={{ display:'flex', justifyContent:'center', gap:10, margin:'-8px auto 2.2rem', width:'min(74ch, 92vw)'}}>
+                <button
+                  data-block-nav="true"
+                  onClick={(e)=>{ e.stopPropagation(); markReadUpTo(idx); }}
+                  title="Bu varoqgacha hammasini o‘qilgan deb belgilash"
+                  style={{
+                    padding:'6px 12px', borderRadius:999, border:`1px solid ${border}`,
+                    background: readPages.has(idx) ? (isDark ? '#15361c' : '#e8f5ee') : (isDark ? '#1b1b1b' : '#f8f8f8'),
+                    color: readPages.has(idx) ? (isDark ? '#c1f2d3' : '#0f5132') : (isDark ? '#f5f5f5' : '#111'),
+                    fontSize:12, cursor:'pointer'
+                  }}
+                >
+                  {readPages.has(idx) ? 'O‘qilgan' : 'O‘qildi'}
+                </button>
+
+                <button
+                  data-block-nav="true"
+                  onClick={(e)=>{ 
+                    e.stopPropagation(); 
+                    setJumpInput(String(idx + 1));
+                    setShowJumpModal(true);
+                  }}
+                  style={{
+                    fontSize:12, padding:'6px 12px', borderRadius:999, border:`1px solid ${border}`,
+                    background:isDark?'#1b1b1b':'#f8f8f8', color:isDark?'#f3f4f6':'#111',
+                    cursor:'pointer'
+                  }}
+                  title="Sahifaga o‘tish"
+                >
+                  {idx + 1} / {pages.length}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        // HORIZONTAL: withdrawal-style swipe
+        <div
+          ref={pageAreaRef}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          style={{
+            position:'relative',
+            minHeight:'40vh',
+            height: (drag.active || drag.committing) && pageBoxH ? `${pageBoxH}px` : 'auto',
+            touchAction: 'pan-y',
+            cursor: (drag.active || drag.committing) ? 'grabbing' : 'default'
+          }}
+        >
+          {/* Normal */}
+          {!(drag.active || drag.committing) && (
+            <pre
+              className="reader-text"
+              ref={textWrapRef}
+              onMouseUp={(e)=>{ if (e.target.closest('[data-hl="true"]')) return; showAddMenuForSelection(); }}
+              lang={langAttr}
+              style={pageTextStyle}
+            >
+              {renderWithHighlights(pages[currentPage] || '', currentPage)}
+            </pre>
+          )}
+
+          {/* Drag layers */}
+          {(drag.active || drag.committing) && (
+            <>
+              <div style={{ ...layerBase, transform: currTransform, transition: transitionStyle }}>
+                <pre className="reader-text" lang={langAttr} style={pageTextStyle} ref={textWrapRef}>
+                  {renderWithHighlights(pages[currentPage] || '', currentPage)}
                 </pre>
               </div>
-            )}
-          </>
-        )}
-      </div>
+              {previewIndex != null && (
+                <div style={{ ...layerBase, transform: previewTransform, transition: transitionStyle }}>
+                  <pre className="reader-text" lang={langAttr} style={pageTextStyle}>
+                    {renderWithHighlights(pages[previewIndex] || '', previewIndex)}
+                  </pre>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
-      {/* HIGHLIGHT MENYUSI (inline) */}
+      {/* HIGHLIGHT MENU */}
       {hlMenu.visible && (
         <div
-          data-hl-menu
-          data-block-nav="true"
-          onClick={(e)=>e.stopPropagation()}
-          onMouseDown={(e)=>e.stopPropagation()}
-          onTouchStart={(e)=>e.stopPropagation()}
+          data-hl-menu data-block-nav="true"
+          onClick={(e)=>e.stopPropagation()} onMouseDown={(e)=>e.stopPropagation()} onTouchStart={(e)=>e.stopPropagation()}
           style={{
             position:'absolute',
             left: Math.max(12, Math.min(window.innerWidth - 12, hlMenu.x)) - 58,
             top:  Math.max(12, hlMenu.y),
-            zIndex:1500,
-            background: isDark ? '#1f2937' : '#111827',
-            color:'#fff',
-            borderRadius: 12,
-            boxShadow:'0 8px 24px rgba(0,0,0,0.25)',
-            padding:'6px',
-            display:'flex',
-            gap:6,
-            alignItems:'center'
+            zIndex:1500, background: isDark ? '#1f2937' : '#111827', color:'#fff',
+            borderRadius: 12, boxShadow:'0 8px 24px rgba(0,0,0,0.25)', padding:'6px',
+            display:'flex', gap:6, alignItems:'center'
           }}
         >
           {hlMenu.mode === 'add' ? (
@@ -1048,12 +868,12 @@ const Reader = () => {
               <button
                 data-block-nav="true"
                 onClick={(e)=>{ 
-                  e.stopPropagation(); 
-                  const { start, end } = selectionOffsetsRef.current;
-                  if (start !== null && end !== null) addHighlight(currentPage, start, end, '#fff59d');
+                  e.stopPropagation();
+                  const { start, end, page } = selectionOffsetsRef.current;
+                  const targetPage = (page ?? currentPage);
+                  if (start !== null && end !== null) addHighlight(targetPage, start, end, '#fff59d');
                 }}
                 style={{ border:'none', background:'#FFD54F', color:'#111', borderRadius:8, padding:'6px 10px', fontSize:13, cursor:'pointer' }}
-                title="Highlight"
               >
                 Highlight
               </button>
@@ -1071,7 +891,6 @@ const Reader = () => {
                 data-block-nav="true"
                 onClick={(e)=>{ e.stopPropagation(); if (hlMenu.targetHighlightId) removeHighlight(hlMenu.targetHighlightId); }}
                 style={{ border:'none', background:'#ef4444', color:'#fff', borderRadius:8, padding:'6px 10px', fontSize:13, cursor:'pointer' }}
-                title="O‘chirish"
               >
                 O‘chirish
               </button>
@@ -1087,15 +906,11 @@ const Reader = () => {
         </div>
       )}
 
-      {/* "O‘qildi" tugmasi */}
+      {/* Global "O‘qildi" (asosan horizontal uchun) */}
       <button
         data-block-nav="true"
         onClick={(e) => { e.stopPropagation(); e.preventDefault(); markReadUpToCurrent(); }}
-        title={
-          allUpToCurrentRead
-            ? 'Bu sahifagacha hammasi allaqachon belgilangan'
-            : `0–${currentPage + 1} o'qildi deb belgilash`
-        }
+        title={allUpToCurrentRead ? 'Bu sahifagacha hammasi allaqachon belgilangan' : `0–${currentPage + 1} o'qildi deb belgilash`}
         style={{
           position: 'fixed', right: 10, bottom: 18, zIndex: 600,
           padding: '10px 12px', borderRadius: 999, border: `1px solid ${border}`,
@@ -1107,10 +922,10 @@ const Reader = () => {
         {isCurrentRead ? 'O‘qilgan' : 'O‘qildi belgilash'}
       </button>
 
-      {/* PAGE INDICATOR */}
+      {/* PAGE INDICATOR (global) */}
       <div
         data-block-nav="true"
-        onClick={(e) => { e.stopPropagation(); setShowJumpModal(true); }}
+        onClick={(e) => { e.stopPropagation(); setShowJumpModal(true); setJumpInput(String(currentPage+1)); }}
         style={{
           position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)',
           textAlign:'center', zIndex:500, fontSize:14, color:textMuted, cursor:'pointer',
@@ -1122,65 +937,22 @@ const Reader = () => {
         {currentPage + 1} / {pages.length}
       </div>
 
-      {/* ================= Anchored Modals ================= */}
-
-      {/* SEARCH (prefer: below, anchor: search icon) */}
-      <AnchoredModal
-        open={showSearch}
-        onClose={()=>setShowSearch(false)}
-        anchorRect={anchorSearch || fallbackAnchor(80)}
-        prefer="below"
-        maxW={720}
-        maxH={0.8}
-        background={surface}
-        isDark={isDark}
-        border={border}
-        zIndex={1400}
-      >
+      {/* ======= Modals ======= */}
+      <AnchoredModal open={showSearch} onClose={()=>setShowSearch(false)} anchorRect={anchorSearch || fallbackAnchor(80)} prefer="below" maxW={720} maxH={0.8} background={surface} isDark={isDark} border={border} zIndex={1400}>
         <div style={{ display:'flex', gap:8 }}>
-          <input
-            data-block-nav="true"
-            value={query}
-            onChange={(e)=>setQuery(e.target.value)}
-            onKeyDown={(e)=>{ if (e.key === 'Enter') runSearch(); }}
-            placeholder="Matndan qidirish… (Enter)"
-            style={{
-              flex:1, padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db',
-              outline:'none', fontSize:14, background:isDark?'#1c1c1c':'#fff', color:isDark?'#f5f5f5':'#111'
-            }}
-          />
-          <button
-            data-block-nav="true"
-            onClick={(e)=>{ e.stopPropagation(); runSearch(); }}
-            style={{
-              padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db',
-              background:'#1c1c1c', color:'#fff', cursor:'pointer', fontSize:14
-            }}
-          >
-            Qidir
-          </button>
+          <input data-block-nav="true" value={query} onChange={(e)=>setQuery(e.target.value)} onKeyDown={(e)=>{ if (e.key === 'Enter') runSearch(); }} placeholder="Matndan qidirish… (Enter)"
+            style={{ flex:1, padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', outline:'none', fontSize:14, background:isDark?'#1c1c1c':'#fff', color:isDark?'#f5f5f5':'#111' }}/>
+          <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); runSearch(); }}
+            style={{ padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', background:'#1c1c1c', color:'#fff', cursor:'pointer', fontSize:14 }}>Qidir</button>
         </div>
-
         <div style={{ marginTop:8, fontSize:12, color:'#6b7280' }}>
           {searching ? 'Qidirilmoqda…' : (results.length ? `${results.length} ta sahifa topildi` : (query ? 'Hech narsa topilmadi' : ''))}
         </div>
-
         {!!results.length && (
-          <div
-            data-block-nav="true"
-            style={{ marginTop:8, borderTop:`1px dashed ${border}`, maxHeight:'48vh', overflow:'auto', paddingTop:8 }}
-          >
+          <div data-block-nav="true" style={{ marginTop:8, borderTop:`1px dashed ${border}`, maxHeight:'48vh', overflow:'auto', paddingTop:8 }}>
             {results.map((r, idx) => (
-              <button
-                key={`${r.page}-${idx}`}
-                data-block-nav="true"
-                onClick={(e)=>{ e.stopPropagation(); jumpToResult(r.page); setShowSearch(false); }}
-                style={{
-                  width:'100%', textAlign:'left', padding:'10px 8px', borderRadius:10,
-                  border:`1px solid ${border}`, background:cardBg, color:isDark?'#f3f4f6':'#111',
-                  cursor:'pointer', marginBottom:8
-                }}
-              >
+              <button key={`${r.page}-${idx}`} data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); jumpToResult(r.page); setShowSearch(false); }}
+                style={{ width:'100%', textAlign:'left', padding:'10px 8px', borderRadius:10, border:`1px solid ${border}`, background:cardBg, color:isDark?'#f3f4f6':'#111', cursor:'pointer', marginBottom:8 }}>
                 <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>Sahifa {r.page + 1}</div>
                 <div style={{ fontSize:14, lineHeight:1.4 }}>{r.snippet}</div>
               </button>
@@ -1189,71 +961,24 @@ const Reader = () => {
         )}
       </AnchoredModal>
 
-      {/* READ LIST (prefer: below, anchor: progress pill) */}
-      <AnchoredModal
-        open={showReadList}
-        onClose={()=>setShowReadList(false)}
-        anchorRect={anchorReadList || fallbackAnchor(72)}
-        prefer="below"
-        maxW={720}
-        minW={720}
-        maxH={0.8}
-        background={cardBg}
-        isDark={isDark}
-        border={border}
-        zIndex={1300}
-      >
+      <AnchoredModal open={showReadList} onClose={()=>setShowReadList(false)} anchorRect={anchorReadList || fallbackAnchor(72)} prefer="below" maxW={720} maxH={0.8} background={cardBg} isDark={isDark} border={border} zIndex={1300}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
           <div style={{ fontWeight:700, fontSize:16, color:isDark?'#f3f4f6':'#111' }}>O‘qilganlar ({readArr.length} sahifa)</div>
-          <button
-            data-block-nav="true"
-            onClick={(e)=>{ e.stopPropagation(); clearAllRead(); }}
-            style={{
-              background:isDark?'#2a1313':'#561818ff',
-              color:'#fff',
-              border:'1px solid #eee',
-              borderRadius:10, padding:'6px 10px', fontSize:12, cursor:'pointer'
-            }}
-          >
-            Tozalash
-          </button>
+          <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); clearAllRead(); }}
+            style={{ background:isDark?'#2a1313':'#561818ff', color:'#fff', border:'1px solid #eee', borderRadius:10, padding:'6px 10px', fontSize:12, cursor:'pointer' }}>Tozalash</button>
         </div>
-        <div
-          style={{
-            fontSize:13, color:isDark?'#d1d5db':'#555',
-            background:isDark?'#111':'#f7f7f7',
-            border:`1px solid ${border}`,
-            borderRadius:10, padding:'8px 10px', marginBottom:10, lineHeight:1.5
-          }}
-        >
+        <div style={{ fontSize:13, color:isDark?'#d1d5db':'#555', background:isDark?'#111':'#f7f7f7', border:`1px solid ${border}`, borderRadius:10, padding:'8px 10px', marginBottom:10, lineHeight:1.5 }}>
           {readArr.length ? (() => {
-            const a = [...new Set(readArr)].sort((x, y) => x - y);
-            const out = [];
-            let s = null, p = null;
-            for (const n of a) {
-              if (s === null) { s = p = n; continue; }
-              if (n === p + 1) { p = n; continue; }
-              out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`);
-              s = p = n;
-            }
-            if (s !== null) out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`);
-            return out.join(', ');
+            const a = [...new Set(readArr)].sort((x, y) => x - y); const out = []; let s = null, p = null;
+            for (const n of a) { if (s === null) { s = p = n; continue; } if (n === p + 1) { p = n; continue; } out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`); s = p = n; }
+            if (s !== null) out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`); return out.join(', ');
           })() : 'Hali sahifalar belgilanmagan'}
         </div>
         {!!readArr.length && (
           <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
             {readArr.sort((a,b)=>a-b).map((p)=>(
-              <button
-                key={p}
-                data-block-nav="true"
-                onClick={(e)=>{ e.stopPropagation(); setCurrentPage(p); setShowReadList(false); }}
-                style={{
-                  padding:'8px 10px', borderRadius:999, border:`1px solid ${border}`,
-                  background:isDark?'#1c1c1c':'#fafafa', cursor:'pointer', fontSize:12,
-                  color:isDark?'#f3f4f6':'#111'
-                }}
-                title={`Sahifa ${p+1}`}
-              >
+              <button key={p} data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); setCurrentPage(p); setShowReadList(false); }}
+                style={{ padding:'8px 10px', borderRadius:999, border:`1px solid ${border}`, background:isDark?'#1c1c1c':'#fafafa', cursor:'pointer', fontSize:12, color:isDark?'#f3f4f6':'#111' }} title={`Sahifa ${p+1}`}>
                 {p+1}
               </button>
             ))}
@@ -1261,101 +986,45 @@ const Reader = () => {
         )}
       </AnchoredModal>
 
-      {/* HIGHLIGHTS (prefer: below, anchor: bookmark icon) */}
-      <AnchoredModal
-        open={showHighlights}
-        onClose={()=>setShowHighlights(false)}
-        anchorRect={anchorHighlights || fallbackAnchor(76)}
-        prefer="below"
-        maxW={720}
-        maxH={0.8}
-        background={surface}
-        isDark={isDark}
-        border={border}
-        zIndex={1460}
-      >
+      <AnchoredModal open={showHighlights} onClose={()=>setShowHighlights(false)} anchorRect={anchorHighlights || fallbackAnchor(76)} prefer="below" maxW={720} maxH={0.8} background={surface} isDark={isDark} border={border} zIndex={1460}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
           <div style={{ fontWeight:700, fontSize:16 }}>{`Belgilangan joylar (${preparedHls.length})`}</div>
-          <button
-            data-block-nav="true"
-            onClick={() => setShowHighlights(false)}
-            style={{
-              fontSize:12, border:`1px solid ${border}`,
-              background:isDark?'#1b1b1b':'#f8f8f8',
-              borderRadius:10, padding:'6px 10px', cursor:'pointer'
-            }}
-          >
-            Yopish
-          </button>
+          <button data-block-nav="true" onClick={() => setShowHighlights(false)}
+            style={{ fontSize:12, border:`1px solid ${border}`, background:isDark?'#1b1b1b':'#f8f8f8', borderRadius:10, padding:'6px 10px', cursor:'pointer' }}>Yopish</button>
         </div>
-
         <div style={{ display:'flex', gap:8, marginBottom:10 }}>
-          <input
-            data-block-nav="true"
-            value={hlFilter}
-            onChange={(e)=>setHlFilter(e.target.value)}
-            placeholder="Belgilanganlardan qidirish…"
-            style={{
-              flex:1, padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db',
-              outline:'none', fontSize:14, background:isDark?'#1c1c1c':'#fff', color:isDark?'#f5f5f5':'#111'
-            }}
-          />
+          <input data-block-nav="true" value={hlFilter} onChange={(e)=>setHlFilter(e.target.value)} placeholder="Belgilanganlardan qidirish…"
+            style={{ flex:1, padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', outline:'none', fontSize:14, background:isDark?'#1c1c1c':'#fff', color:isDark?'#f5f5f5':'#111' }}/>
           {hlFilter && (
-            <button
-              data-block-nav="true"
-              onClick={()=>setHlFilter('')}
-              style={{
-                padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db',
-                background:'#e5e7eb', cursor:'pointer', fontSize:14
-              }}
-            >
-              Toza
-            </button>
+            <button data-block-nav="true" onClick={()=>setHlFilter('')}
+              style={{ padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', background:'#e5e7eb', cursor:'pointer', fontSize:14 }}>Toza</button>
           )}
         </div>
-
         {preparedHls.length === 0 ? (
           <div style={{ fontSize:13, color:'#6b7280' }}>Hali belgilangan joy yo‘q.</div>
         ) : (
           <div style={{ display:'grid', gap:8 }}>
             {preparedHls.map((h) => (
-              <button
-                key={h.id}
-                data-block-nav="true"
-                onClick={() => {
-                  setShowHighlights(false);
-                  setCurrentPage(h.page);
+              <button key={h.id} data-block-nav="true" onClick={() => {
+                  setShowHighlights(false); setCurrentPage(h.page);
                   setTimeout(() => { setFlashId(h.id); setTimeout(()=>setFlashId(null), 900); }, 50);
                 }}
-                style={{
-                  textAlign:'left', border:`1px solid ${border}`, background:cardBg,
-                  color:isDark?'#f3f4f6':'#111', borderRadius:12, padding:'10px 12px', cursor:'pointer'
-                }}
-                title={`Sahifa ${h.page + 1}`}
-              >
-                <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>
-                  Sahifa {h.page + 1}
-                </div>
-                <div style={{ fontSize:14, lineHeight:1.5 }}>
-                  {h.snippet}
-                </div>
+                style={{ textAlign:'left', border:`1px solid ${border}`, background:cardBg, color:isDark?'#f3f4f6':'#111', borderRadius:12, padding:'10px 12px', cursor:'pointer' }}
+                title={`Sahifa ${h.page + 1}`}>
+                <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>Sahifa {h.page + 1}</div>
+                <div style={{ fontSize:14, lineHeight:1.5 }}>{h.snippet}</div>
               </button>
             ))}
           </div>
         )}
       </AnchoredModal>
 
-      {/* JUMP modal (oddiy markaziy, kichkina input) */}
+      {/* JUMP modal */}
       {showJumpModal && (
-        <div
-          onClick={() => setShowJumpModal(false)}
-          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:1600, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}
-        >
-          <div
-            data-block-nav="true"
-            onClick={(e)=>e.stopPropagation()}
-            style={{ background:'#fff', paddingBottom:'14px', borderRadius:'16px', width:'100%', maxWidth:'340px', boxShadow:'0 8px 24px rgba(0,0,0,0.2)', textAlign:'center', transition:'all 0.3s ease' }}
-          >
+        <div onClick={() => setShowJumpModal(false)}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:1600, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
+          <div data-block-nav="true" onClick={(e)=>e.stopPropagation()}
+            style={{ background:'#fff', paddingBottom:'14px', borderRadius:'16px', width:'100%', maxWidth:'340px', boxShadow:'0 8px 24px rgba(0,0,0,0.2)', textAlign:'center', transition:'all 0.3s ease' }}>
             <h3 style={{ marginBottom:'1rem', fontSize:'18px', fontWeight:600, color:'#222' }}>
               Sahifa: {currentPage + 1} / {pages.length}
             </h3>
@@ -1364,12 +1033,18 @@ const Reader = () => {
               type="number"
               placeholder="Sahifa raqamini kiriting"
               value={jumpInput}
+              autoFocus
               onChange={(e)=>setJumpInput(e.target.value)}
               onKeyDown={(e)=>{
                 if (e.key==='Enter'){
                   const p=parseInt(jumpInput,10);
                   if(!isNaN(p)&&p>=1&&p<=pages.length){
                     setCurrentPage(p-1); setShowJumpModal(false); setJumpInput('');
+                    // vertical rejimda ham darrov fokuslangan sahifaga o‘tadi
+                    if (flow === 'vertical') {
+                      const el = pageRefs.current[p-1];
+                      if (el) el.scrollIntoView({ behavior:'smooth', block:'start' });
+                    }
                   }
                 }
               }}
@@ -1380,37 +1055,18 @@ const Reader = () => {
         </div>
       )}
 
-      {/* SETTINGS (prefer: below, anchor: settings icon; katta panel) */}
-      <AnchoredModal
-        open={showSettings}
-        onClose={()=>setShowSettings(false)}
-        anchorRect={anchorSettings || fallbackAnchor(84)}
-        prefer="below"
-        maxW={840}
-        maxH={0.9}
-        background={isDark?'#111':'#fff'}
-        isDark={isDark}
-        border={border}
-        zIndex={1500}
-      >
+      {/* SETTINGS */}
+      <AnchoredModal open={showSettings} onClose={()=>setShowSettings(false)} anchorRect={anchorSettings || fallbackAnchor(84)} prefer="below" maxW={840} maxH={0.9} background={isDark?'#111':'#fff'} isDark={isDark} border={border} zIndex={1500}>
         <SettingsPanel
-          fontSize={fontSize}
-          setFontSize={setFontSize}
-          fontFamily={fontFamily}
-          setFontFamily={setFontFamily}
-          background={background}
-          setBackground={setBackground}
-          brightness={brightness}
-          setBrightness={setBrightness}
-          flow={flow}
-          setFlow={setFlow}
+          fontSize={fontSize} setFontSize={setFontSize}
+          fontFamily={fontFamily} setFontFamily={setFontFamily}
+          background={background} setBackground={setBackground}
+          brightness={brightness} setBrightness={setBrightness}
+          flow={flow} setFlow={setFlow}
           onClose={() => setShowSettings(false)}
-          pageMargin={pageMargin}
-          setPageMargin={setPageMargin}
-          wordSpacing={wordSpacing}
-          setWordSpacing={setWordSpacing}
-          letterSpacing={letterSpacing}
-          setLetterSpacing={setLetterSpacing}
+          pageMargin={pageMargin} setPageMargin={setPageMargin}
+          wordSpacing={wordSpacing} setWordSpacing={setWordSpacing}
+          letterSpacing={letterSpacing} setLetterSpacing={setLetterSpacing}
         />
       </AnchoredModal>
     </div>
