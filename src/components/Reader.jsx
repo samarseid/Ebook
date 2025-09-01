@@ -891,6 +891,35 @@ const toggleStarPage = useCallback((idx) => {
               <div data-block-nav="true"
                    style={{ display:'flex', justifyContent:'center', gap:10, margin:'-8px auto 2.2rem', width:'min(74ch, 92vw)'}}>
                     
+  {/* NEW: Yulduz chipi */}
+  <button
+    data-block-nav="true"
+    onClick={(e)=>{ e.stopPropagation(); toggleStarPage(idx); }}
+    title={starredPages.has(idx) ? 'Yulduzni olib tashlash' : 'Ushbu sahifani yulduzlash'}
+    style={{
+      padding:'6px 10px',
+      borderRadius:999,
+      border:`1px solid ${border}`,
+      background: starredPages.has(idx)
+        ? (isDark ? '#3a2f00' : '#fff8db')   // yengil sariq fon
+        : (isDark ? '#1b1b1b' : '#f8f8f8'),
+      color: starredPages.has(idx)
+        ? (isDark ? '#fde68a' : '#7c5c00')
+        : (isDark ? '#f5f5f5' : '#111'),
+      display:'inline-flex',
+      alignItems:'center',
+      gap:6,
+      fontSize:12,
+      cursor:'pointer'
+    }}
+  >
+    {starredPages.has(idx)
+      ? <IoStar size={14} color="#facc15" />
+      : <IoStarOutline size={14} color={iconColor} />}
+    <span style={{ lineHeight:1 }}>
+      {starredPages.has(idx) ? 'Yulduzlangan' : 'Yulduzla'}
+    </span>
+  </button>
                 <button
                   data-block-nav="true"
                   onClick={(e)=>{ e.stopPropagation(); markReadUpTo(idx); }}

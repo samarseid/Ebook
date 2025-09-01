@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { loadFormattedEpubPages } from '../utils/epubUtils';
 import { useTelegram, tg } from '../hooks/useTelegram';
 import SettingsPanel from '../components/SettingsPanel';
-
 import {
   IoSettingsSharp,
   IoChevronBack,
@@ -145,6 +144,7 @@ const AnchoredModal = ({
 /* ===================================================================== */
 
 const ReaderEpub = () => {
+
   const { user } = useTelegram();
   const navigate = useNavigate();
 
@@ -865,12 +865,12 @@ const toggleStarPage = useCallback((idx) => {
       {/* HEADER */}
       {currentPage === 0 ? (
         <div style={{ textAlign:'center', marginBottom:'1rem' }}>
-          <h1 style={{ fontSize:'32px', fontWeight:'bold', marginBottom:4, fontFamily }}>Yaxshiyam Sen Borsan</h1>
-          <h2 style={{ fontSize:'18px', color:textMuted, fontFamily }}>1-bob</h2>
+          <h1 style={{ fontSize:'32px', fontWeight:'bold', marginBottom:4, fontFamily }}>Икки Эшик Ораси</h1>
+          <h2 style={{ fontSize:'18px', color:textMuted, fontFamily }}>1-БОБ Совуқ хабар</h2>
         </div>
       ) : (
         <div style={{ textAlign:'center', fontWeight:600, marginBottom:'1rem', fontSize:'16px', color:textMuted, fontFamily }}>
-          {Math.floor(currentPage / 10) + 1} -bob
+          {Math.floor(currentPage / 10) + 1} -БОБ
         </div>
       )}
 
@@ -892,6 +892,35 @@ const toggleStarPage = useCallback((idx) => {
               <div data-block-nav="true"
                    style={{ display:'flex', justifyContent:'center', gap:10, margin:'-8px auto 2.2rem', width:'min(74ch, 92vw)'}}>
                     
+  {/* NEW: Yulduz chipi */}
+  <button
+    data-block-nav="true"
+    onClick={(e)=>{ e.stopPropagation(); toggleStarPage(idx); }}
+    title={starredPages.has(idx) ? 'Yulduzni olib tashlash' : 'Ushbu sahifani yulduzlash'}
+    style={{
+      padding:'6px 10px',
+      borderRadius:999,
+      border:`1px solid ${border}`,
+      background: starredPages.has(idx)
+        ? (isDark ? '#3a2f00' : '#fff8db')   // yengil sariq fon
+        : (isDark ? '#1b1b1b' : '#f8f8f8'),
+      color: starredPages.has(idx)
+        ? (isDark ? '#fde68a' : '#7c5c00')
+        : (isDark ? '#f5f5f5' : '#111'),
+      display:'inline-flex',
+      alignItems:'center',
+      gap:6,
+      fontSize:12,
+      cursor:'pointer'
+    }}
+  >
+    {starredPages.has(idx)
+      ? <IoStar size={14} color="#facc15" />
+      : <IoStarOutline size={14} color={iconColor} />}
+    <span style={{ lineHeight:1 }}>
+      {starredPages.has(idx) ? 'Yulduzlangan' : 'Yulduzla'}
+    </span>
+  </button>
                 <button
                   data-block-nav="true"
                   onClick={(e)=>{ e.stopPropagation(); markReadUpTo(idx); }}
@@ -1311,6 +1340,5 @@ const toggleStarPage = useCallback((idx) => {
     </div>
   );
 };
-
 
 export default ReaderEpub;
