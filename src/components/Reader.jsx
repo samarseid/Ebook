@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { loadFormattedPdfPages } from '../utils/pdfUtils';
 import { useTelegram, tg } from '../hooks/useTelegram';
 import SettingsPanel from '../components/SettingsPanel';
-import { IoSettingsSharp, IoChevronBack, IoSearchSharp, IoBookmark } from 'react-icons/io5'; // ← bookmark qo'shildi
+import { IoSettingsSharp, IoChevronBack, IoSearchSharp, IoBookmark } from 'react-icons/io5';
 import './reader.css';
 
 const HL_KEY = (bookId) => `highlights:${bookId}`;
@@ -47,6 +47,173 @@ function hyphenateVisible(s) {
 }
 /* ==================================================================== */
 
+/* ====================== Anchored Modal (Reusable) ====================== */
+function useViewport() {
+  const [vp, setVp] = useState({ w: window.innerWidth, h: window.innerHeight });
+  useEffect(() => {
+    const onResize = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+  return vp;
+}
+function rectFrom(el) {
+  if (!el || !el.getBoundingClientRect) return null;
+  const r = el.getBoundingClientRect();
+  return { top: r.top, left: r.left, right: r.right, bottom: r.bottom, width: r.width, height: r.height, x: r.x, y: r.y };
+}
+function fallbackAnchor(offsetTop = 80) {
+  const w = Math.min(720, window.innerWidth * 0.92);
+  return { top: offsetTop, bottom: offsetTop, left: (window.innerWidth - w) / 2, right: (window.innerWidth + w) / 2, width: w, height: 0, x: (window.innerWidth - w) / 2, y: offsetTop };
+}
+
+/**
+ * AnchoredModal — panelni foydalanuvchi bosgan tugma atrofida ko‘rsatadi.
+ * - anchorRect: getBoundingClientRect() natijasi (yoki fallback)
+ * - prefer: 'below' | 'above' (joylashish afzal yo‘nalishi)
+ * - maxW, maxH: o‘lcham cheklovlari
+ */
+const AnchoredModal = ({
+  open,
+  onClose,
+  anchorRect,
+  prefer = 'below',
+  maxW = 720,
+  maxH = 0.8, // viewport foizi (0..1) yoki px (>=1) — quyi kodda handle qilamiz
+  background = '#fff',
+  zIndex = 1400,
+  children,
+  isDark = false,
+  border = '#e5e7eb'
+}) => {
+  const panelRef = useRef(null);
+  const { w: vw, h: vh } = useViewport();
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0, transformOrigin: 'top center' });
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    if (!open) { setReady(false); return; }
+    const raf = requestAnimationFrame(() => {
+      const panel = panelRef.current;
+      if (!panel) return;
+
+      // Yo‘nalish va o‘lchamlar
+      const margin = 12;
+      const usableMaxW = Math.min(maxW, vw - margin * 2);
+      const cssMaxH = typeof maxH === 'number' && maxH < 1 ? Math.floor(vh * maxH) : (typeof maxH === 'number' ? Math.floor(Math.min(maxH, vh - margin * 2)) : Math.floor(vh * 0.8));
+
+      // Panelni o‘lchash uchun vaqtincha ko‘rinadigan qilamiz
+      panel.style.visibility = 'hidden';
+      panel.style.maxWidth = `${usableMaxW}px`;
+      panel.style.maxHeight = `${cssMaxH}px`;
+      panel.style.width = 'auto';
+
+      // Reflow
+      const pw = Math.min(panel.scrollWidth, usableMaxW);
+      const ph = Math.min(panel.scrollHeight, cssMaxH);
+
+      const a = anchorRect || fallbackAnchor(80);
+      const anchorCenterX = a.left + (a.width || 0) / 2;
+
+      // Dastlabki koordinatalar
+      let left = Math.round(anchorCenterX - pw / 2);
+      left = Math.max(margin, Math.min(left, vw - pw - margin));
+
+      // Pastga joylashishga urinib ko‘ramiz, bo‘lmasa yuqoriga
+      let topCandidateBelow = Math.round((a.bottom || a.top) + 8);
+      let topCandidateAbove = Math.round((a.top || a.bottom) - ph - 8);
+      let top;
+      let origin;
+
+      const spaceBelow = vh - (a.bottom || a.top);
+      const spaceAbove = (a.top || a.bottom);
+
+      const canBelow = spaceBelow >= ph + margin;
+      const canAbove = spaceAbove >= ph + margin;
+
+      if (prefer === 'below') {
+        if (canBelow || (!canAbove && spaceBelow >= spaceAbove)) {
+          top = Math.min(topCandidateBelow, vh - ph - margin);
+          origin = 'top center';
+        } else {
+          top = Math.max(margin, topCandidateAbove);
+          origin = 'bottom center';
+        }
+      } else {
+        if (canAbove || (!canBelow && spaceAbove >= spaceBelow)) {
+          top = Math.max(margin, topCandidateAbove);
+          origin = 'bottom center';
+        } else {
+          top = Math.min(topCandidateBelow, vh - ph - margin);
+          origin = 'top center';
+        }
+      }
+
+      // Ekranga to‘liq sig‘ishi uchun clamp
+      top = Math.max(margin, Math.min(top, vh - ph - margin));
+
+      setPos({ top, left, width: pw, transformOrigin: origin });
+
+      // Ko‘rsatamiz
+      panel.style.visibility = '';
+      setReady(true);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open, anchorRect, vw, vh, maxW, maxH]);
+
+  if (!open) return null;
+
+  return (
+    <>
+      <div
+        data-block-nav="true"
+        onClick={onClose}
+        style={{
+          position: 'fixed', inset: 0, zIndex: zIndex - 10,
+          background: 'rgba(0,0,0,0.28)',
+          backdropFilter: 'blur(4px)',
+          WebkitBackdropFilter: 'blur(4px)'
+        }}
+      />
+      <div
+        ref={panelRef}
+        data-block-nav="true"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e)=>e.stopPropagation()}
+        style={{
+          position: 'fixed',
+          top: pos.top,
+          left: pos.left,
+          width: pos.width ? pos.width : 'auto',
+          maxWidth: Math.min(maxW, vw - 24),
+          maxHeight: typeof maxH === 'number' && maxH < 1 ? `${Math.floor(vh * maxH)}px` : (typeof maxH === 'number' ? `${Math.min(maxH, vh - 24)}px` : `${Math.floor(vh * 0.8)}px`),
+          zIndex,
+          background,
+          color: isDark ? '#f3f4f6' : '#111',
+          borderRadius: 16,
+          boxShadow: '0 12px 36px rgba(0,0,0,0.24)',
+          border: `1px solid ${border}`,
+          overflowY: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          padding: 14,
+          transformOrigin: pos.transformOrigin,
+          transform: ready ? 'scale(1)' : 'scale(0.98)',
+          opacity: ready ? 1 : 0,
+          transition: 'opacity 120ms ease, transform 120ms ease'
+        }}
+      >
+        {children}
+      </div>
+    </>
+  );
+};
+/* ===================================================================== */
+
 const Reader = () => {
   const { user } = useTelegram();
   const navigate = useNavigate();
@@ -56,10 +223,20 @@ const Reader = () => {
   const [pages, setPages] = useState([]);
   const [currentPage, setCurrentPage] = useState(0);
   const [loading, setLoading] = useState(true);
+
+  // Panellar
   const [showSettings, setShowSettings] = useState(false);
   const [showJumpModal, setShowJumpModal] = useState(false);
   const [jumpInput, setJumpInput] = useState('');
   const [showReadList, setShowReadList] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [showHighlights, setShowHighlights] = useState(false);
+
+  // Anchor rectlar (bosilgan tugma joyi)
+  const [anchorSettings, setAnchorSettings] = useState(null);
+  const [anchorSearch, setAnchorSearch] = useState(null);
+  const [anchorReadList, setAnchorReadList] = useState(null);
+  const [anchorHighlights, setAnchorHighlights] = useState(null);
 
   // UI settings
   const [fontSize, setFontSize] = useState(() => {
@@ -73,7 +250,7 @@ const Reader = () => {
     return saved ? parseInt(saved, 10) : 100;
   });
 
-  // Yangi tipografiya sozlamalari
+  // Tipografiya
   const [pageMargin, setPageMargin] = useState(() => {
     const v = localStorage.getItem('pageMargin');
     return v !== null ? Number(v) : 24;
@@ -87,14 +264,14 @@ const Reader = () => {
     return v !== null ? Number(v) : 0;
   });
 
-  // Flow (horizontal/vertical)
+  // Flow
   const [flow, setFlow] = useState(() => {
     const saved = localStorage.getItem('readFlow');
     return saved === 'vertical' || saved === 'horizontal' ? saved : 'horizontal';
   });
   useEffect(() => { localStorage.setItem('readFlow', flow); }, [flow]);
 
-  // O'qilgan sahifalar
+  // O‘qilgan sahifalar
   const [readPages, setReadPages] = useState(() => {
     try {
       const saved = localStorage.getItem(`read-${bookId}`);
@@ -103,22 +280,9 @@ const Reader = () => {
       return new Set(Array.isArray(arr) ? arr : []);
     } catch { return new Set(); }
   });
-  // Drag vaqtida page area balandligini saqlash
-  const [pageBoxH, setPageBoxH] = useState(null);
-
   useEffect(() => {
     localStorage.setItem(`read-${bookId}`, JSON.stringify(Array.from(readPages)));
   }, [readPages, bookId]);
-
-  const openReadList = () => {
-    if (document.activeElement?.blur) document.activeElement.blur();
-    setShowReadList(true);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
-      });
-    });
-  };
 
   const totalPages = pages.length;
   const progress = totalPages ? Math.floor((readPages.size / totalPages) * 100) : 0;
@@ -148,60 +312,32 @@ const Reader = () => {
       return br < 140;
     } catch { return false; }
   };
+
   const clearAllRead = () => {
     if (confirm('Barcha o‘qilgan belgilari o‘chirilsinmi?')) setReadPages(new Set());
   };
-// 🔎 Qidiruvdan kelgan vaqtinchalik yoritmalar
-const [searchFlash, setSearchFlash] = useState({ page: null, ranges: [] });
 
-// matndan q so‘zining barcha joyini (case-insensitive) topish
-const findAllRanges = useCallback((text, q) => {
-  if (!text || !q) return [];
-  const tlc = text.toLowerCase();
-  const qlc = q.toLowerCase();
-  const out = [];
-  let i = 0;
-  while (true) {
-    const idx = tlc.indexOf(qlc, i);
-    if (idx === -1) break;
-    out.push({ start: idx, end: idx + q.length });
-    i = idx + q.length;
-  }
-  return out;
-}, []);
-
-  // Qidiruv
-  const [showSearch, setShowSearch] = useState(false);
+  // Qidiruv flash
+  const [searchFlash, setSearchFlash] = useState({ page: null, ranges: [] });
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState([]);
-  const [showHighlights, setShowHighlights] = useState(false);
-// Bottom sheet/panel ochilganda pastga avtomatik scroll
-useEffect(() => {
-  // Qaysidir biri ochilganmi?
-  const opened = showSettings || showSearch || showReadList || showHighlights;
-  if (!opened) return;
+  const findAllRanges = useCallback((text, q) => {
+    if (!text || !q) return [];
+    const tlc = text.toLowerCase();
+    const qlc = q.toLowerCase();
+    const out = [];
+    let i = 0;
+    while (true) {
+      const idx = tlc.indexOf(qlc, i);
+      if (idx === -1) break;
+      out.push({ start: idx, end: idx + q.length });
+      i = idx + q.length;
+    }
+    return out;
+  }, []);
 
-  // Window yoki root elementni aniqlab scroll qilamiz
-  const root = document.scrollingElement || document.documentElement;
-
-  const tick = () => {
-    root.scrollTo({
-      top: root.scrollHeight,
-      behavior: 'smooth'
-    });
-  };
-
-  // Kichik delay + rAF — panel DOMga tushib bo‘lsin
-  const id = setTimeout(() => {
-    requestAnimationFrame(tick);
-  }, 50);
-
-  return () => clearTimeout(id);
-}, [showSettings, showSearch, showReadList, showHighlights]);
-
-
-  // Sozlamalarni yuklash/saqlash
+  // LS
   useEffect(() => {
     const s1 = localStorage.getItem('fontSize');
     const s2 = localStorage.getItem('fontFamily');
@@ -218,13 +354,11 @@ useEffect(() => {
     localStorage.setItem('background', background);
     localStorage.setItem('brightness', String(brightness));
   }, [fontSize, fontFamily, background, brightness]);
-
-  // Yangi tipografiya LS
   useEffect(() => { localStorage.setItem('pageMargin', String(pageMargin)); }, [pageMargin]);
   useEffect(() => { localStorage.setItem('wordSpacing', String(wordSpacing)); }, [wordSpacing]);
   useEffect(() => { localStorage.setItem('letterSpacing', String(letterSpacing)); }, [letterSpacing]);
 
-  // Sahifalarni yuklash + lastPage
+  // Sahifalarni yuklash
   useEffect(() => {
     tg.ready();
     loadFormattedPdfPages('/books/test.pdf')
@@ -252,7 +386,7 @@ useEffect(() => {
     };
   }, []);
 
-  // ======== HIGHLIGHT (YORITMA) ========
+  // ======== HIGHLIGHT ========
   const textWrapRef = useRef(null);
   const [highlights, setHighlights] = useState(() => {
     try {
@@ -266,7 +400,7 @@ useEffect(() => {
 
   const [hlMenu, setHlMenu] = useState({
     visible: false, x: 0, y: 0,
-    mode: 'add',           // add | remove
+    mode: 'add',
     targetHighlightId: null
   });
 
@@ -293,58 +427,40 @@ useEffect(() => {
 
   const selectionOffsetsRef = useRef({ start: null, end: null });
 
-// 1) getTextOffset ni null-safe qiling (agar hali shunday bo'lmasa)
-const getTextOffset = (root, node, nodeOffset) => {
-  let offset = 0;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
-  let current;
-  while ((current = walker.nextNode())) {
-    if (current === node) return offset + nodeOffset;
-    offset += (current.nodeValue?.length ?? 0);
-  }
-  return offset;
-};
-
-// 2) Soft-hyphen hisoblagich
-const countSoftHyphens = (s) => (s.match(/\u00AD/g) || []).length;
-
-// 3) DOM offset -> RAW offset mapping
-const mapDomOffsetsToRaw = (root, startDom, endDom) => {
-  const domText = root.textContent || '';
-  // start/end dan oldingi \u00AD lar sonini topamiz
-  const shStart = countSoftHyphens(domText.slice(0, startDom));
-  const shEnd   = countSoftHyphens(domText.slice(0, endDom));
-  const startRaw = Math.max(0, startDom - shStart);
-  const endRaw   = Math.max(0, endDom - shEnd);
-  return { start: startRaw, end: endRaw };
-};
-
-// 4) getSelectionOffsetsWithin ni DOM->RAW o'giradigan qilib almashtiring
-const getSelectionOffsetsWithin = (root) => {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return null;
-
-  const range = sel.getRangeAt(0);
-  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
-
-  // DOM indekslari (hyphenation bilan)
-  const domStart = getTextOffset(root, range.startContainer, range.startOffset);
-  const domEnd   = getTextOffset(root, range.endContainer,   range.endOffset);
-  if (domStart === domEnd) return null;
-
-  const minDom = Math.min(domStart, domEnd);
-  const maxDom = Math.max(domStart, domEnd);
-
-  // 🔁 RAW indekslarga o‘tkazamiz (soft-hyphenlarni olib tashlab)
-  const { start, end } = mapDomOffsetsToRaw(root, minDom, maxDom);
-
-  return { start, end, rect: range.getBoundingClientRect() };
-};
+  const getTextOffset = (root, node, nodeOffset) => {
+    let offset = 0;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    let current;
+    while ((current = walker.nextNode())) {
+      if (current === node) return offset + (current.nodeValue ? nodeOffset : 0);
+      offset += (current.nodeValue?.length ?? 0);
+    }
+    return offset;
+  };
+  const countSoftHyphens = (s) => (s.match(/\u00AD/g) || []).length;
+  const mapDomOffsetsToRaw = (root, startDom, endDom) => {
+    const domText = root.textContent || '';
+    const shStart = countSoftHyphens(domText.slice(0, startDom));
+    const shEnd   = countSoftHyphens(domText.slice(0, endDom));
+    return { start: Math.max(0, startDom - shStart), end: Math.max(0, endDom - shEnd) };
+  };
+  const getSelectionOffsetsWithin = (root) => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+    const domStart = getTextOffset(root, range.startContainer, range.startOffset);
+    const domEnd   = getTextOffset(root, range.endContainer,   range.endOffset);
+    if (domStart === domEnd) return null;
+    const minDom = Math.min(domStart, domEnd);
+    const maxDom = Math.max(domStart, domEnd);
+    const { start, end } = mapDomOffsetsToRaw(root, minDom, maxDom);
+    return { start, end, rect: range.getBoundingClientRect() };
+  };
 
   const addHighlight = (page, start, end, color = '#fff59d') => {
     let ns = Math.min(start, end);
     let ne = Math.max(start, end);
-
     const text = pages[page] || '';
     const slice = text.slice(ns, ne);
     if (!slice || !slice.trim()) {
@@ -352,27 +468,20 @@ const getSelectionOffsetsWithin = (root) => {
       window.getSelection()?.removeAllRanges();
       return;
     }
-
     setHighlights(prev => {
       const keepOther = prev.filter(h => h.page !== page);
       const samePage  = prev.filter(h => h.page === page);
-
       for (const h of samePage) {
-        if (isCoveredBy(h.start, h.end, ns, ne)) return prev;
+        if (h.start <= ns && ne <= h.end) return prev;
       }
-
-      let blocks = [...samePage];
-      blocks.push({ id: 'tmp', page, start: ns, end: ne, color });
-
-      const merged = mergePageRanges(blocks.map(({ start, end }) => ({ start, end })));
+      const blocks = [...samePage, { start: ns, end: ne }];
+      const merged = mergePageRanges(blocks);
       const normalized = merged.map(r => ({
         id: `${page}-${r.start}-${r.end}-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
         page, start: r.start, end: r.end, color
       }));
-
       return [...keepOther, ...normalized];
     });
-
     setHlMenu({ visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null });
     selectionOffsetsRef.current = { start: null, end: null };
     window.getSelection()?.removeAllRanges();
@@ -382,7 +491,7 @@ const getSelectionOffsetsWithin = (root) => {
     setHlMenu({ visible: false, x: 0, y: 0, mode: 'add', targetHighlightId: null });
   };
 
-  const showAddMenuForSelection = (evt) => {
+  const showAddMenuForSelection = () => {
     if (!textWrapRef.current) return;
     const off = getSelectionOffsetsWithin(textWrapRef.current);
     if (!off) {
@@ -390,11 +499,9 @@ const getSelectionOffsetsWithin = (root) => {
       return;
     }
     selectionOffsetsRef.current = { start: off.start, end: off.end };
-
     const pageRect = document.body.getBoundingClientRect();
     const mx = off.rect.left + off.rect.width / 2 - pageRect.left;
     const my = off.rect.top - pageRect.top - 8;
-
     setHlMenu({
       visible: true,
       x: Math.max(12, Math.min(window.innerWidth - 12, mx)),
@@ -417,76 +524,65 @@ const getSelectionOffsetsWithin = (root) => {
     });
   };
 
-  // 🔔 FLASH indikator uchun state
   const [flashId, setFlashId] = useState(null);
-const renderWithHighlights = (text, pageIndex) => {
-  // 1) oddiy highlightlar
-  const base = highlights
-    .filter(h => h.page === pageIndex)
-    .map(h => ({ ...h, isFlash: false }));
+  const renderWithHighlights = (text, pageIndex) => {
+    const base = highlights
+      .filter(h => h.page === pageIndex)
+      .map(h => ({ ...h, isFlash: h.id === flashId }));
 
-  // 2) qidiruvdan kelgan vaqtinchalik highlightlar
-  const flashes = (searchFlash.page === pageIndex)
-    ? searchFlash.ranges.map((r, i) => ({
-        id: `sf-${i}`,
-        page: pageIndex,
-        start: r.start,
-        end: r.end,
-        color: '#fff1a6',   // iliq sariq
-        isFlash: true
-      }))
-    : [];
+    const flashes = (searchFlash.page === pageIndex)
+      ? searchFlash.ranges.map((r, i) => ({
+          id: `sf-${i}`,
+          page: pageIndex,
+          start: r.start,
+          end: r.end,
+          color: '#fff1a6',
+          isFlash: true
+        }))
+      : [];
 
-  // 3) ikkalasini birga, tartiblab
-  const pageHls = [...base, ...flashes].sort((a,b) => a.start - b.start || a.end - b.end);
+    const pageHls = [...base, ...flashes].sort((a,b) => a.start - b.start || a.end - b.end);
+    if (pageHls.length === 0) return hyphenateVisible(text);
 
-  if (pageHls.length === 0) return hyphenateVisible(text);
+    const out = [];
+    let cursor = 0;
 
-  const out = [];
-  let cursor = 0;
+    for (const h of pageHls) {
+      let s = Math.max(0, Math.min(text.length, h.start));
+      let e = Math.max(0, Math.min(text.length, h.end));
+      if (e <= cursor) continue;
+      if (s < cursor) s = cursor;
 
-  for (const h of pageHls) {
-    let s = Math.max(0, Math.min(text.length, h.start));
-    let e = Math.max(0, Math.min(text.length, h.end));
-    if (e <= cursor) continue;
-    if (s < cursor) s = cursor;
+      if (cursor < s) out.push(hyphenateVisible(text.slice(cursor, s)));
+      out.push(
+        <mark
+          key={`${h.id}-${s}-${e}`}
+          data-block-nav="true"
+          onMouseDown={(e)=>e.stopPropagation()}
+          onTouchStart={(e)=>e.stopPropagation()}
+          onClick={(e)=>!h.isFlash && showRemoveMenuFor(e, h.id)}
+          style={{
+            background: h.color || '#fff59d',
+            padding: '0 0.5px',
+            borderRadius: '2px',
+            wordSpacing: `${wordSpacing}px`,
+            letterSpacing: `${letterSpacing}px`,
+            outline: h.isFlash ? '2px solid rgba(251, 191, 36, 0.95)' : 'none',
+            boxShadow: h.isFlash ? '0 0 0 4px rgba(251, 191, 36, 0.25)' : 'none',
+            transition: 'outline 180ms ease, box-shadow 180ms ease',
+            cursor: h.isFlash ? 'default' : 'pointer'
+          }}
+        >
+          {hyphenateVisible(text.slice(s, e))}
+        </mark>
+      );
+      cursor = e;
+    }
+    if (cursor < text.length) out.push(hyphenateVisible(text.slice(cursor)));
+    return out;
+  };
 
-    if (cursor < s) out.push(hyphenateVisible(text.slice(cursor, s)));
-    out.push(
-      <mark
-        key={`${h.id}-${s}-${e}`}
-        data-block-nav="true"
-        onMouseDown={(e)=>e.stopPropagation()}
-        onTouchStart={(e)=>e.stopPropagation()}
-        onClick={(e)=>!h.isFlash && showRemoveMenuFor(e, h.id)}
-        style={{
-          background: h.color || '#fff59d',
-          padding: '0 0.5px',
-          borderRadius: '2px',
-          wordSpacing: `${wordSpacing}px`,
-          letterSpacing: `${letterSpacing}px`,
-          // 🔆 flash bo‘lsa, kuchli “glow”
-          outline: h.isFlash ? '2px solid rgba(251, 191, 36, 0.95)' : 'none',
-          boxShadow: h.isFlash ? '0 0 0 4px rgba(251, 191, 36, 0.25)' : 'none',
-          transition: 'outline 180ms ease, box-shadow 180ms ease',
-          cursor: h.isFlash ? 'default' : 'pointer'
-        }}
-      >
-        {hyphenateVisible(text.slice(s, e))}
-      </mark>
-    );
-    cursor = e;
-  }
-  if (cursor < text.length) out.push(hyphenateVisible(text.slice(cursor)));
-  return out;
-};
-
-
-  // ======== HIGHLIGHT HELPERS ========
   const rangesOverlap = (aStart, aEnd, bStart, bEnd) => !(aEnd <= bStart || bEnd <= aStart);
-  const isCoveredBy = (outerStart, outerEnd, innerStart, innerEnd) =>
-    outerStart <= innerStart && innerEnd <= outerEnd;
-
   const mergePageRanges = (items) => {
     if (!items.length) return [];
     const sorted = [...items].sort((x, y) => x.start - y.start || x.end - y.end);
@@ -505,51 +601,27 @@ const renderWithHighlights = (text, pageIndex) => {
     out.push(cur);
     return out;
   };
-// 2.2 — Joriy sahifa balandligini o‘lchash (drag yo‘q paytda)
-useEffect(() => {
-  if (!textWrapRef.current) return;
 
-  const el = textWrapRef.current;
-
-  // Rejim: keyingi paintdan keyin o‘lchash — aniqroq bo‘ladi
-  const raf = requestAnimationFrame(() => {
-    const h = Math.ceil(el.getBoundingClientRect().height);
-    if (h && h !== pageBoxH) setPageBoxH(h);
-  });
-
-  // (ixtiyoriy) responsive holatlar uchun resize’ga ham yangilash
-  const onResize = () => {
-    if (!textWrapRef.current) return;
-    const h2 = Math.ceil(textWrapRef.current.getBoundingClientRect().height);
-    if (h2 && h2 !== pageBoxH) setPageBoxH(h2);
-  };
-  window.addEventListener('resize', onResize);
-
-  return () => {
-    cancelAnimationFrame(raf);
-    window.removeEventListener('resize', onResize);
-  };
-// Sahifa balandligiga ta’sir qiladigan barcha dependencelar:
-}, [currentPage, pages, fontSize, fontFamily, wordSpacing, letterSpacing, pageMargin, flow]);
-
-  /* ====================== SWIPE: FOLLOW-FINGER ====================== */
-  const containerRef = useRef(null);
+  // Drag nav
+  const outerRef = useRef(null);
+  const pageAreaRef = useRef(null);
   const startX = useRef(0);
   const startY = useRef(0);
-  const draggingAxis = useRef(null); // 'horizontal' | 'vertical' | null
+  const draggingAxis = useRef(null);
   const pointerActive = useRef(false);
+  const [pageBoxH, setPageBoxH] = useState(null);
 
   const [drag, setDrag] = useState({
     active: false,
-    delta: 0,           // px
-    committing: false,  // transition on
-    target: null,       // index
-    dir: null,          // 'next' | 'prev'
+    delta: 0,
+    committing: false,
+    target: null,
+    dir: null,
   });
 
   const dimsRef = useRef({ w: 0, h: 0 });
   const measure = useCallback(() => {
-    const r = containerRef.current?.getBoundingClientRect();
+    const r = pageAreaRef.current?.getBoundingClientRect();
     if (!r) return;
     dimsRef.current = { w: Math.max(1, r.width), h: Math.max(1, r.height) };
   }, []);
@@ -559,58 +631,37 @@ useEffect(() => {
     return () => window.removeEventListener('resize', measure);
   }, [measure]);
 
-  // 🛡️ swipe guard — highlight panelini ham hisobga oldik
   const [hlFilter, setHlFilter] = useState('');
- const guardBlocked = useCallback(
-   () => showSettings || showJumpModal || showSearch || showReadList || showHighlights || hlMenu.visible,
-   [showSettings, showJumpModal, showSearch, showReadList, showHighlights, hlMenu.visible]
- );
-  const shouldBlockFromTarget = (t) =>
-    (t?.closest && t.closest('[data-block-nav="true"]')) ? true : false;
-
+  const guardBlocked = useCallback(
+    () => showSettings || showJumpModal || showSearch || showReadList || showHighlights || hlMenu.visible,
+    [showSettings, showJumpModal, showSearch, showReadList, showHighlights, hlMenu.visible]
+  );
+  const shouldBlockFromTarget = (t) => (t?.closest && t.closest('[data-block-nav="true"]')) ? true : false;
   const navBusy = drag.active || drag.committing;
 
-const begin = useCallback((x, y, targetEl) => {
-  if (guardBlocked() || navBusy) return;
-  if (shouldBlockFromTarget(targetEl)) return;
-
-  // Konteyner o‘lchamini yangilab qo‘yamiz (w/h uchun)
-  measure();
-
-  // ✅ DRAG BOSHLANISHIDA: joriy matn balandligini "qotirib" qo'yamiz
-  if (textWrapRef.current) {
-    const h = Math.ceil(textWrapRef.current.getBoundingClientRect().height);
-    if (h) setPageBoxH(h); // <-- 2.1 da yaratgan state’ga yozamiz
-  }
-
-  startX.current = x;
-  startY.current = y;
-  draggingAxis.current = null;
-
-  setDrag(d => ({
-    ...d,
-    active: true,
-    delta: 0,
-    committing: false,
-    target: null,
-    dir: null
-  }));
-}, [guardBlocked, navBusy, measure]);
-
+  const begin = useCallback((x, y, targetEl) => {
+    if (guardBlocked() || navBusy) return;
+    if (shouldBlockFromTarget(targetEl)) return;
+    measure();
+    if (textWrapRef.current) {
+      const h = Math.ceil(textWrapRef.current.getBoundingClientRect().height);
+      if (h) setPageBoxH(h);
+    }
+    startX.current = x;
+    startY.current = y;
+    draggingAxis.current = null;
+    setDrag(d => ({ ...d, active: true, delta: 0, committing: false, target: null, dir: null }));
+  }, [guardBlocked, navBusy, measure]);
 
   const move = useCallback((x, y) => {
     if (!drag.active || drag.committing) return;
     const dx = x - startX.current;
     const dy = y - startY.current;
-
-    // Axisni aniqlash (deadzone ~8px)
     if (!draggingAxis.current) {
       const ax = Math.abs(dx) > Math.abs(dy) ? 'horizontal' : 'vertical';
       if ((ax === 'horizontal' && Math.abs(dx) < 8) || (ax === 'vertical' && Math.abs(dy) < 8)) return;
       draggingAxis.current = ax;
     }
-
-    // Faqat tanlangan flow bo'yicha kuzatamiz
     if (flow === 'horizontal' && draggingAxis.current !== 'horizontal') return;
     if (flow === 'vertical' && draggingAxis.current !== 'vertical') return;
 
@@ -618,94 +669,49 @@ const begin = useCallback((x, y, targetEl) => {
     const size = flow === 'horizontal' ? w : h;
     const rawDelta = flow === 'horizontal' ? dx : dy;
 
-    // Target sahifa: delta < 0 -> next, > 0 -> prev
     let dir = null;
     let target = null;
-    if (rawDelta < 0 && currentPage + 1 < pages.length) {
-      dir = 'next'; target = currentPage + 1;
-    } else if (rawDelta > 0 && currentPage - 1 >= 0) {
-      dir = 'prev'; target = currentPage - 1;
-    }
+    if (rawDelta < 0 && currentPage + 1 < pages.length) { dir = 'next'; target = currentPage + 1; }
+    else if (rawDelta > 0 && currentPage - 1 >= 0) { dir = 'prev'; target = currentPage - 1; }
 
-    // Chegarada "rubber-band" (target yo'q bo'lsa)
-    let delta = rawDelta;
-    if (target === null) delta = rawDelta * 0.35;
-
-    // Clamp (± size)
+    let delta = target === null ? rawDelta * 0.35 : rawDelta;
     const maxShift = size;
-    if (delta > maxShift) delta = maxShift;
-    if (delta < -maxShift) delta = -maxShift;
-
+    delta = Math.max(-maxShift, Math.min(delta, maxShift));
     setDrag(d => ({ ...d, delta, target, dir }));
   }, [drag.active, drag.committing, flow, currentPage, pages.length]);
-// 2.4 — Commit/Revert tugaganda konteyner balandligini qaytarish
-const commitOrRevert = useCallback(() => {
-  if (!drag.active || drag.committing) return;
 
-  const { w, h } = dimsRef.current;
-  const size = flow === 'horizontal' ? w : h;
-  const threshold = Math.max(60, size * 0.2); // 20% yoki 60px
+  const commitOrRevert = useCallback(() => {
+    if (!drag.active || drag.committing) return;
+    const { w, h } = dimsRef.current;
+    const size = flow === 'horizontal' ? w : h;
+    const threshold = Math.max(60, size * 0.2);
+    if (textWrapRef.current) setTimeout(() => showAddMenuForSelection(), 0);
 
-  // Tanlov bo'lgan bo'lsa, menyuni ko'rsatish
-  if (textWrapRef.current) {
-    setTimeout(() => showAddMenuForSelection(), 0);
-  }
+    if (drag.target != null && Math.abs(drag.delta) >= threshold) {
+      setDrag(d => ({ ...d, committing: true, delta: d.dir === 'next' ? -size : size }));
+      setTimeout(() => {
+        setCurrentPage(drag.target);
+        setDrag({ active: false, delta: 0, committing: false, target: null, dir: null });
+        setPageBoxH(null);
+      }, 280);
+    } else {
+      setDrag(d => ({ ...d, committing: true, delta: 0 }));
+      setTimeout(() => {
+        setDrag({ active: false, delta: 0, committing: false, target: null, dir: null });
+        setPageBoxH(null);
+      }, 240);
+    }
+  }, [drag.active, drag.committing, drag.delta, drag.target, drag.dir, flow]);
 
-  // ✅ COMMIT: threshold oshgan bo'lsa — keyingi/oldingi sahifaga o'tamiz
-  if (drag.target != null && Math.abs(drag.delta) >= threshold) {
-    // drag qatlamini to'liq yoqqa suramiz
-    setDrag(d => ({ ...d, committing: true, delta: d.dir === 'next' ? -size : size }));
-
-    // Transition tugagach sahifani almashtirish va height'ni qaytarish
-    const finish = () => {
-      setCurrentPage(drag.target);
-      setDrag({ active: false, delta: 0, committing: false, target: null, dir: null });
-      setPageBoxH(null); // 🔙 height -> auto
-    };
-    setTimeout(finish, 280); // anim davomiga mos
-  } else {
-    // ❌ REVERT: threshold yetmadi — orqaga qaytaramiz
-    setDrag(d => ({ ...d, committing: true, delta: 0 }));
-    setTimeout(() => {
-      setDrag({ active: false, delta: 0, committing: false, target: null, dir: null });
-      setPageBoxH(null); // 🔙 height -> auto
-    }, 240);
-  }
-}, [
-  drag.active, drag.committing, drag.delta, drag.target, drag.dir,
-  flow, dimsRef, textWrapRef
-]);
-
-
-  // Touch/Pointer handlerlari
-  const onTouchStart = useCallback((e) => {
-    const t = e.touches?.[0]; if (!t) return;
-    begin(t.clientX, t.clientY, e.target);
-  }, [begin]);
-  const onTouchMove = useCallback((e) => {
-    const t = e.touches?.[0]; if (!t) return;
-    move(t.clientX, t.clientY);
-  }, [move]);
-  const onTouchEnd = useCallback((e) => {
-    commitOrRevert();
-  }, [commitOrRevert]);
-
-  const onPointerDown = useCallback((e) => {
-    pointerActive.current = true;
-    begin(e.clientX, e.clientY, e.target);
-  }, [begin]);
-  const onPointerMove = useCallback((e) => {
-    if (!pointerActive.current) return;
-    move(e.clientX, e.clientY);
-  }, [move]);
-  const onPointerUp = useCallback((e) => {
-    pointerActive.current = false;
-    commitOrRevert();
-  }, [commitOrRevert]);
+  const onTouchStart = useCallback((e) => { const t = e.touches?.[0]; if (!t) return; begin(t.clientX, t.clientY, e.target); }, [begin]);
+  const onTouchMove  = useCallback((e) => { const t = e.touches?.[0]; if (!t) return; move(t.clientX, t.clientY); }, [move]);
+  const onTouchEnd   = useCallback(() => commitOrRevert(), [commitOrRevert]);
+  const onPointerDown= useCallback((e) => { pointerActive.current = true; begin(e.clientX, e.clientY, e.target); }, [begin]);
+  const onPointerMove= useCallback((e) => { if (!pointerActive.current) return; move(e.clientX, e.clientY); }, [move]);
+  const onPointerUp  = useCallback(() => { pointerActive.current = false; commitOrRevert(); }, [commitOrRevert]);
 
   const jumpInstant = useCallback((toIndex) => {
     if (toIndex < 0 || toIndex >= pages.length || toIndex === currentPage) return;
-    // Klaviatura uchun yumshoq animatsiya
     const { w, h } = dimsRef.current;
     const size = flow === 'horizontal' ? w : h;
     const dir = toIndex > currentPage ? 'next' : 'prev';
@@ -751,35 +757,21 @@ const commitOrRevert = useCallback(() => {
     setResults(found);
     setSearching(false);
   };
-const jumpToResult = (p) => {
-  const q = query.trim();
-  setCurrentPage(p);
-  setShowSearch(false);
-  setQuery('');
-  setResults([]);
-
-  if (q) {
-    const ranges = findAllRanges(pages[p] || '', q);
-    setSearchFlash({ page: p, ranges });
-    // 1.8 soniyadan keyin o‘chirib qo‘yamiz
-    setTimeout(() => setSearchFlash({ page: null, ranges: [] }), 1800);
-  }
-};
-
-
-  const compactRanges = (arr) => {
-    const a = [...new Set(arr)].sort((x, y) => x - y);
-    const out = [];
-    let s = null, p = null;
-    for (const n of a) {
-      if (s === null) { s = p = n; continue; }
-      if (n === p + 1) { p = n; continue; }
-      out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`);
-      s = p = n;
+  const jumpToResult = (p) => {
+    const q = query.trim();
+    setCurrentPage(p);
+    setShowSearch(false);
+    setQuery('');
+    setResults([]);
+    if (q) {
+      const ranges = findAllRanges(pages[p] || '', q);
+      setSearchFlash({ page: p, ranges });
+      setTimeout(() => setSearchFlash({ page: null, ranges: [] }), 1800);
     }
-    if (s !== null) out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`);
-    return out.join(', ');
   };
+
+  // Bottom-sheet autoscroll — O‘CHIRILGAN (endilikda anchored modal)
+  useEffect(() => {}, [showSettings, showSearch, showReadList, showHighlights]);
 
   if (loading) {
     return (
@@ -799,12 +791,10 @@ const jumpToResult = (p) => {
   const iconColor = isDark ? '#f5f5f5' : '#111';
   const readArr = Array.from(readPages);
 
-  // Lang autodetect (kiril/lotin)
   const sample = (pages[currentPage] || '').slice(0, 200);
   const isCyr = /[\u0400-\u04FF]/.test(sample);
   const langAttr = isCyr ? 'uz-Cyrl' : 'uz';
 
-  // Spacing clamp
   const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
   const safeWordSpacing = clamp(wordSpacing, -0.5, 2);
   const safeLetterSpacing = clamp(letterSpacing, -0.5, 1.5);
@@ -835,31 +825,21 @@ const jumpToResult = (p) => {
     borderRadius: '12px',
   };
 
-  // Drag transformlari
   const axis = flow === 'horizontal' ? 'X' : 'Y';
   const { w, h } = dimsRef.current;
   const size = flow === 'horizontal' ? w : h;
 
-  // Preview qatlam transformi (follow-finger)
   let currTransform = `translate${axis}(${drag.active || drag.committing ? drag.delta : 0}px)`;
-  let previewTransform = null; // null bo'lsa ko'rsatilmaydi
+  let previewTransform = null;
   let previewIndex = drag.target;
-
   if ((drag.active || drag.committing) && drag.target != null) {
     const delta = drag.delta;
-    if (delta < 0) {
-      // next: preview o'ngdan/pastdan keladi -> +size + delta
-      previewTransform = `translate${axis}(${size + delta}px)`;
-    } else if (delta > 0) {
-      // prev: preview chapdan/yuqoridan keladi -> -size + delta
-      previewTransform = `translate${axis}(${-size + delta}px)`;
-    }
+    if (delta < 0) previewTransform = `translate${axis}(${size + delta}px)`;
+    else if (delta > 0) previewTransform = `translate${axis}(${-size + delta}px)`;
   }
-
   const transitionStyle = drag.committing ? 'transform 260ms ease' : 'none';
   const layerBase = { position: 'absolute', inset: 0, overflow: 'hidden', willChange: 'transform' };
 
-  // 🔎 Highlightlar paneli uchun helperlar
   const makeHlSnippet = (text, start, end, pad = 40) => {
     const s = Math.max(0, start - pad);
     const e = Math.min(text.length, end + pad);
@@ -879,15 +859,16 @@ const jumpToResult = (p) => {
     return mapped.filter(x => x.snippet.toLowerCase().includes(q));
   })();
 
+  // Trigger helper (olingan elementdan anchor saqlaymiz)
+  const openWithAnchor = (e, setAnchor, setOpen, topFallback = 80) => {
+    const rect = e?.currentTarget ? rectFrom(e.currentTarget) : fallbackAnchor(topFallback);
+    setAnchor(rect || fallbackAnchor(topFallback));
+    setOpen(true);
+  };
+
   return (
     <div
-      ref={containerRef}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
+      ref={outerRef}
       onKeyDown={onKeyDown}
       tabIndex={0}
       style={{
@@ -900,7 +881,6 @@ const jumpToResult = (p) => {
         transition: 'filter 0.3s ease',
         position: 'relative',
         overflowX: 'hidden',
-        touchAction: flow === 'horizontal' ? 'pan-y' : 'pan-x', // nav uchun default scrollni bloklash
         overscrollBehavior: 'none',
       }}
       onClick={(e) => {
@@ -916,7 +896,6 @@ const jumpToResult = (p) => {
           position:'sticky', top:0, zIndex:50,
           display:'flex', justifyContent:'space-between', alignItems:'center',
           paddingBottom:8, marginTop:-8,
-
         }}
       >
         <button
@@ -928,42 +907,45 @@ const jumpToResult = (p) => {
           <IoChevronBack size={24} color={iconColor} />
         </button>
 
+        {/* Progress pill — READ LIST ochadi (ANCHOR: pill o‘zi) */}
         <button
-        
           data-block-nav="true"
-          onClick={(e)=>{ e.stopPropagation(); openReadList(); }}
+          onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorReadList, setShowReadList, 72); }}
           title="O‘qilgan sahifalar"
           style={{
             fontSize:12, padding:'6px 10px', borderRadius:999, border:`1px solid ${border}`,
             background:isDark?'#1b1b1b':'#f8f8f8', color:isDark?'#f3f4f6':'#111',
-            minWidth:44, textAlign:'center', userSelect:'none', cursor:'pointer', marginLeft:'80px'
+            minWidth:44, textAlign:'center', userSelect:'none', cursor:'pointer', marginLeft:'80px',
           }}
         >
           {progress}%
         </button>
 
         <div data-block-nav="true" style={{ display:'flex', gap:12, alignItems:'center' }}>
-          {/* 🔖 Bookmark (highlights) tugma */}
+          {/* Highlights list (ANCHOR: tugma) */}
           <button
             data-block-nav="true"
-            onClick={(e)=>{ e.stopPropagation(); setShowHighlights(true); }}
+            onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorHighlights, setShowHighlights, 76); }}
             title="Belgilangan joylar"
             style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}
           >
             <IoBookmark size={22} color={iconColor} />
           </button>
 
+          {/* Search (ANCHOR: tugma) */}
           <button
             data-block-nav="true"
-            onClick={(e)=>{ e.stopPropagation(); setShowSearch(v=>!v); }}
+            onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorSearch, setShowSearch, 76); }}
             title="Qidiruv"
             style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}
           >
             <IoSearchSharp size={22} color={iconColor} />
           </button>
+
+          {/* Settings (ANCHOR: tugma) */}
           <button
             data-block-nav="true"
-            onClick={(e)=>{ e.stopPropagation(); setShowSettings(true); }}
+            onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorSettings, setShowSettings, 84); }}
             title="Sozlamalar"
             style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}
           >
@@ -989,14 +971,28 @@ const jumpToResult = (p) => {
         </div>
       )}
 
-      {/* ======= PAGE AREA ======= */}
-      <div ref={containerRef} style={{ position:'relative', minHeight:'40vh',   height: (drag.active || drag.committing) && pageBoxH ? `${pageBoxH}px` : 'auto', }}>
+      {/* ======= PAGE AREA (drag + pointer/touch) ======= */}
+      <div
+        ref={pageAreaRef}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        style={{
+          position:'relative',
+          minHeight:'40vh',
+          height: (drag.active || drag.committing) && pageBoxH ? `${pageBoxH}px` : 'auto',
+          touchAction: flow === 'horizontal' ? 'pan-y' : 'pan-x',
+        }}
+      >
         {/* Normal holat */}
         {!(drag.active || drag.committing) && (
           <pre
             className="reader-text"
             ref={textWrapRef}
-            onMouseUp={(e)=>{ if (textWrapRef.current?.contains(e.target)) showAddMenuForSelection(e); }}
+            onMouseUp={(e)=>{ if (textWrapRef.current?.contains(e.target)) showAddMenuForSelection(); }}
             lang={langAttr}
             style={pageTextStyle}
           >
@@ -1007,14 +1003,12 @@ const jumpToResult = (p) => {
         {/* Drag/Commit holatida: ikki qatlam */}
         {(drag.active || drag.committing) && (
           <>
-            {/* joriy qatlam (dragga ergashadi) */}
             <div style={{ ...layerBase, transform: currTransform, transition: transitionStyle }}>
               <pre className="reader-text" lang={langAttr} style={pageTextStyle} ref={textWrapRef}>
                 {renderWithHighlights(pages[currentPage] || '', currentPage)}
               </pre>
             </div>
 
-            {/* preview qatlam (keyingi/oldingi) */}
             {previewIndex != null && (
               <div style={{ ...layerBase, transform: previewTransform, transition: transitionStyle }}>
                 <pre className="reader-text" lang={langAttr} style={pageTextStyle}>
@@ -1026,7 +1020,7 @@ const jumpToResult = (p) => {
         )}
       </div>
 
-      {/* HIGHLIGHT MENYUSI */}
+      {/* HIGHLIGHT MENYUSI (inline) */}
       {hlMenu.visible && (
         <div
           data-hl-menu
@@ -1128,205 +1122,297 @@ const jumpToResult = (p) => {
         {currentPage + 1} / {pages.length}
       </div>
 
-      {/* READ LIST, SEARCH, JUMP MODAL, SETTINGS */}
-      {showSearch && (
-        <>
-          <div className="search-overlay" data-block-nav="true" onClick={() => setShowSearch(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1390 }} />
-          <div className="search-panel" data-block-nav="true"
-            onClick={(e)=>e.stopPropagation()} onTouchStart={(e)=>e.stopPropagation()} onTouchMove={(e)=>e.stopPropagation()} onTouchEnd={(e)=>e.stopPropagation()}
-            onPointerDown={(e)=>e.stopPropagation()} onPointerMove={(e)=>e.stopPropagation()} onPointerUp={(e)=>e.stopPropagation()}
-            style={{ position:'fixed', left:0, right:0, bottom:0, background:surface, borderTopLeftRadius:24, borderTopRightRadius:24, boxShadow:'0 -8px 24px rgba(0,0,0,0.18)', padding:'14px 14px 18px', zIndex:1400, maxHeight:'70vh', overflowY:'auto', WebkitOverflowScrolling:'touch' }}>
-            <div style={{ display:'flex', gap:8 }}>
-              <input data-block-nav="true" value={query} onChange={(e)=>setQuery(e.target.value)} onKeyDown={(e)=>{ if (e.key === 'Enter') runSearch(); }} placeholder="Matndan qidirish… (Enter)"
-                style={{ flex:1, padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', outline:'none', fontSize:14, background:isDark?'#1c1c1c':'#fff', color:isDark?'#f5f5f5':'#111' }}/>
-              <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); runSearch(); }} style={{ padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', background:'#1c1c1c', color:'#fff', cursor:'pointer', fontSize:14 }}>Qidir</button>
-            </div>
-            <div style={{ marginTop:8, fontSize:12, color:'#6b7280' }}>
-              {searching ? 'Qidirilmoqda…' : (results.length ? `${results.length} ta sahifa topildi` : (query ? 'Hech narsa topilmadi' : ''))}
-            </div>
-            {!!results.length && (
-              <div data-block-nav="true" style={{ marginTop:8, borderTop:`1px dashed ${border}`, maxHeight:'48vh', overflow:'auto', paddingTop:8 }}>
-                {results.map((r, idx) => (
-                  <button key={`${r.page}-${idx}`} data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); jumpToResult(r.page); setShowSearch(false); }}
-                    style={{ width:'100%', textAlign:'left', padding:'10px 8px', borderRadius:10, border:`1px solid ${border}`, background:cardBg, color:isDark?'#f3f4f6':'#111', cursor:'pointer', marginBottom:8 }}>
-                    <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>Sahifa {r.page + 1}</div>
-                    <div style={{ fontSize:14, lineHeight:1.4 }}>{r.snippet}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </>
-      )}
+      {/* ================= Anchored Modals ================= */}
 
-      {showReadList && (
-        <>
-          <div className="readlist-overlay" data-block-nav="true" onClick={() => setShowReadList(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1200 }} />
-          <div className="readlist-panel" data-block-nav="true"
-            onClick={(e)=>e.stopPropagation()} onTouchStart={(e)=>e.stopPropagation()} onTouchMove={(e)=>e.stopPropagation()} onTouchEnd={(e)=>e.stopPropagation()}
-            onPointerDown={(e)=>e.stopPropagation()} onPointerMove={(e)=>e.stopPropagation()} onPointerUp={(e)=>e.stopPropagation()}
-            style={{ position:'fixed', bottom:0, left:0, right:0, background:'#fff', borderTopLeftRadius:24, borderTopRightRadius:24, boxShadow:'0 -8px 24px rgba(0,0,0,0.18)', padding:'16px 16px 20px', zIndex:1300, maxHeight:'75vh', overflowY:'auto' }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
-              <div style={{ fontWeight:700, fontSize:16, color:'#111' }}>O‘qilganlar ({readArr.length} sahifa)</div>
-              <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); clearAllRead(); }}
-                style={{ background:'#561818ff', border:'1px solid #eee', borderRadius:10, padding:'6px 10px', fontSize:12, cursor:'pointer' }}>
-                Tozalash
-              </button>
-            </div>
-              <div style={{ fontSize:13, color:'#555', background:'#f7f7f7', border:'1px solid #eee', borderRadius:10, padding:'8px 10px', marginBottom:10, lineHeight:1.5 }}>
-                {readArr.length ? compactRanges(readArr) : 'Hali sahifalar belgilanmagan'}
-              </div>
-            {!!readArr.length && (
-              <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
-                {readArr.sort((a,b)=>a-b).map((p)=>(
-                  <button key={p} data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); setCurrentPage(p); setShowReadList(false); }}
-                    style={{ padding:'8px 10px', borderRadius:999, border:'1px solid #e5e7eb', background:'#fafafa', cursor:'pointer', fontSize:12, color:'#111' }}
-                    title={`Sahifa ${p+1}`}>{p+1}</button>
-                ))}
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {/* 🔖 HIGHLIGHTS PANEL (Bottom Sheet) */}
-      {showHighlights && (
-        <>
-          <div
-            className="hl-overlay"
+      {/* SEARCH (prefer: below, anchor: search icon) */}
+      <AnchoredModal
+        open={showSearch}
+        onClose={()=>setShowSearch(false)}
+        anchorRect={anchorSearch || fallbackAnchor(80)}
+        prefer="below"
+        maxW={720}
+        maxH={0.8}
+        background={surface}
+        isDark={isDark}
+        border={border}
+        zIndex={1400}
+      >
+        <div style={{ display:'flex', gap:8 }}>
+          <input
             data-block-nav="true"
-            onClick={() => setShowHighlights(false)}
-            style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1450 }}
-          />
-          <div
-            className="hl-panel"
-            data-block-nav="true"
-            onClick={(e)=>e.stopPropagation()}
-            onTouchStart={(e)=>e.stopPropagation()}
-            onTouchMove={(e)=>e.stopPropagation()}
-            onTouchEnd={(e)=>e.stopPropagation()}
-            onPointerDown={(e)=>e.stopPropagation()}
-            onPointerMove={(e)=>e.stopPropagation()}
-            onPointerUp={(e)=>e.stopPropagation()}
+            value={query}
+            onChange={(e)=>setQuery(e.target.value)}
+            onKeyDown={(e)=>{ if (e.key === 'Enter') runSearch(); }}
+            placeholder="Matndan qidirish… (Enter)"
             style={{
-              position:'fixed', left:0, right:0, bottom:0, zIndex:1460,
-              background: surface, borderTopLeftRadius:24, borderTopRightRadius:24,
-              boxShadow:'0 -8px 24px rgba(0,0,0,0.18)', padding:'14px 14px 18px',
-              maxHeight:'75vh', overflowY:'auto', WebkitOverflowScrolling:'touch'
+              flex:1, padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db',
+              outline:'none', fontSize:14, background:isDark?'#1c1c1c':'#fff', color:isDark?'#f5f5f5':'#111'
+            }}
+          />
+          <button
+            data-block-nav="true"
+            onClick={(e)=>{ e.stopPropagation(); runSearch(); }}
+            style={{
+              padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db',
+              background:'#1c1c1c', color:'#fff', cursor:'pointer', fontSize:14
             }}
           >
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-              <div style={{ fontWeight:700, fontSize:16 }}>{`Belgilangan joylar (${preparedHls.length})`}</div>
+            Qidir
+          </button>
+        </div>
+
+        <div style={{ marginTop:8, fontSize:12, color:'#6b7280' }}>
+          {searching ? 'Qidirilmoqda…' : (results.length ? `${results.length} ta sahifa topildi` : (query ? 'Hech narsa topilmadi' : ''))}
+        </div>
+
+        {!!results.length && (
+          <div
+            data-block-nav="true"
+            style={{ marginTop:8, borderTop:`1px dashed ${border}`, maxHeight:'48vh', overflow:'auto', paddingTop:8 }}
+          >
+            {results.map((r, idx) => (
               <button
+                key={`${r.page}-${idx}`}
                 data-block-nav="true"
-                onClick={() => setShowHighlights(false)}
-                style={{ fontSize:12, border:'1px solid #e5e7eb', background:isDark?'#1b1b1b':'#f8f8f8', borderRadius:10, padding:'6px 10px', cursor:'pointer' }}
+                onClick={(e)=>{ e.stopPropagation(); jumpToResult(r.page); setShowSearch(false); }}
+                style={{
+                  width:'100%', textAlign:'left', padding:'10px 8px', borderRadius:10,
+                  border:`1px solid ${border}`, background:cardBg, color:isDark?'#f3f4f6':'#111',
+                  cursor:'pointer', marginBottom:8
+                }}
               >
-                Yopish
+                <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>Sahifa {r.page + 1}</div>
+                <div style={{ fontSize:14, lineHeight:1.4 }}>{r.snippet}</div>
               </button>
-            </div>
-
-            <div style={{ display:'flex', gap:8, marginBottom:10 }}>
-              <input
-                data-block-nav="true"
-                value={hlFilter}
-                onChange={(e)=>setHlFilter(e.target.value)}
-                placeholder="Belgilanganlardan qidirish…"
-                style={{ flex:1, padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', outline:'none', fontSize:14,
-                         background:isDark?'#1c1c1c':'#fff', color:isDark?'#f5f5f5':'#111' }}
-              />
-              {hlFilter && (
-                <button
-                  data-block-nav="true"
-                  onClick={()=>setHlFilter('')}
-                  style={{ padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db', background:'#e5e7eb', cursor:'pointer', fontSize:14 }}
-                >
-                  Toza
-                </button>
-              )}
-            </div>
-
-            {preparedHls.length === 0 ? (
-              <div style={{ fontSize:13, color:'#6b7280' }}>Hali belgilangan joy yo‘q.</div>
-            ) : (
-              <div style={{ display:'grid', gap:8 }}>
-                {preparedHls.map((h) => (
-                  <button
-                    key={h.id}
-                    data-block-nav="true"
-                    onClick={() => {
-                      setShowHighlights(false);
-                      setCurrentPage(h.page);
-                      // mark DOMga tushishi uchun kichik delay va flash
-                      setTimeout(() => { setFlashId(h.id); setTimeout(()=>setFlashId(null), 900); }, 50);
-                    }}
-                    style={{
-                      textAlign:'left', border:`1px solid ${border}`, background:cardBg,
-                      color:isDark?'#f3f4f6':'#111', borderRadius:12, padding:'10px 12px', cursor:'pointer'
-                    }}
-                    title={`Sahifa ${h.page + 1}`}
-                  >
-                    <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>
-                      Sahifa {h.page + 1}
-                    </div>
-                    <div style={{ fontSize:14, lineHeight:1.5 }}>
-                      {h.snippet}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
+            ))}
           </div>
-        </>
-      )}
+        )}
+      </AnchoredModal>
 
+      {/* READ LIST (prefer: below, anchor: progress pill) */}
+      <AnchoredModal
+        open={showReadList}
+        onClose={()=>setShowReadList(false)}
+        anchorRect={anchorReadList || fallbackAnchor(72)}
+        prefer="below"
+        maxW={720}
+        minW={720}
+        maxH={0.8}
+        background={cardBg}
+        isDark={isDark}
+        border={border}
+        zIndex={1300}
+      >
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+          <div style={{ fontWeight:700, fontSize:16, color:isDark?'#f3f4f6':'#111' }}>O‘qilganlar ({readArr.length} sahifa)</div>
+          <button
+            data-block-nav="true"
+            onClick={(e)=>{ e.stopPropagation(); clearAllRead(); }}
+            style={{
+              background:isDark?'#2a1313':'#561818ff',
+              color:'#fff',
+              border:'1px solid #eee',
+              borderRadius:10, padding:'6px 10px', fontSize:12, cursor:'pointer'
+            }}
+          >
+            Tozalash
+          </button>
+        </div>
+        <div
+          style={{
+            fontSize:13, color:isDark?'#d1d5db':'#555',
+            background:isDark?'#111':'#f7f7f7',
+            border:`1px solid ${border}`,
+            borderRadius:10, padding:'8px 10px', marginBottom:10, lineHeight:1.5
+          }}
+        >
+          {readArr.length ? (() => {
+            const a = [...new Set(readArr)].sort((x, y) => x - y);
+            const out = [];
+            let s = null, p = null;
+            for (const n of a) {
+              if (s === null) { s = p = n; continue; }
+              if (n === p + 1) { p = n; continue; }
+              out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`);
+              s = p = n;
+            }
+            if (s !== null) out.push(s === p ? `${s + 1}` : `${s + 1}–${p + 1}`);
+            return out.join(', ');
+          })() : 'Hali sahifalar belgilanmagan'}
+        </div>
+        {!!readArr.length && (
+          <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+            {readArr.sort((a,b)=>a-b).map((p)=>(
+              <button
+                key={p}
+                data-block-nav="true"
+                onClick={(e)=>{ e.stopPropagation(); setCurrentPage(p); setShowReadList(false); }}
+                style={{
+                  padding:'8px 10px', borderRadius:999, border:`1px solid ${border}`,
+                  background:isDark?'#1c1c1c':'#fafafa', cursor:'pointer', fontSize:12,
+                  color:isDark?'#f3f4f6':'#111'
+                }}
+                title={`Sahifa ${p+1}`}
+              >
+                {p+1}
+              </button>
+            ))}
+          </div>
+        )}
+      </AnchoredModal>
+
+      {/* HIGHLIGHTS (prefer: below, anchor: bookmark icon) */}
+      <AnchoredModal
+        open={showHighlights}
+        onClose={()=>setShowHighlights(false)}
+        anchorRect={anchorHighlights || fallbackAnchor(76)}
+        prefer="below"
+        maxW={720}
+        maxH={0.8}
+        background={surface}
+        isDark={isDark}
+        border={border}
+        zIndex={1460}
+      >
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+          <div style={{ fontWeight:700, fontSize:16 }}>{`Belgilangan joylar (${preparedHls.length})`}</div>
+          <button
+            data-block-nav="true"
+            onClick={() => setShowHighlights(false)}
+            style={{
+              fontSize:12, border:`1px solid ${border}`,
+              background:isDark?'#1b1b1b':'#f8f8f8',
+              borderRadius:10, padding:'6px 10px', cursor:'pointer'
+            }}
+          >
+            Yopish
+          </button>
+        </div>
+
+        <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+          <input
+            data-block-nav="true"
+            value={hlFilter}
+            onChange={(e)=>setHlFilter(e.target.value)}
+            placeholder="Belgilanganlardan qidirish…"
+            style={{
+              flex:1, padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db',
+              outline:'none', fontSize:14, background:isDark?'#1c1c1c':'#fff', color:isDark?'#f5f5f5':'#111'
+            }}
+          />
+          {hlFilter && (
+            <button
+              data-block-nav="true"
+              onClick={()=>setHlFilter('')}
+              style={{
+                padding:'10px 12px', borderRadius:10, border:'1px solid #d1d5db',
+                background:'#e5e7eb', cursor:'pointer', fontSize:14
+              }}
+            >
+              Toza
+            </button>
+          )}
+        </div>
+
+        {preparedHls.length === 0 ? (
+          <div style={{ fontSize:13, color:'#6b7280' }}>Hali belgilangan joy yo‘q.</div>
+        ) : (
+          <div style={{ display:'grid', gap:8 }}>
+            {preparedHls.map((h) => (
+              <button
+                key={h.id}
+                data-block-nav="true"
+                onClick={() => {
+                  setShowHighlights(false);
+                  setCurrentPage(h.page);
+                  setTimeout(() => { setFlashId(h.id); setTimeout(()=>setFlashId(null), 900); }, 50);
+                }}
+                style={{
+                  textAlign:'left', border:`1px solid ${border}`, background:cardBg,
+                  color:isDark?'#f3f4f6':'#111', borderRadius:12, padding:'10px 12px', cursor:'pointer'
+                }}
+                title={`Sahifa ${h.page + 1}`}
+              >
+                <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>
+                  Sahifa {h.page + 1}
+                </div>
+                <div style={{ fontSize:14, lineHeight:1.5 }}>
+                  {h.snippet}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </AnchoredModal>
+
+      {/* JUMP modal (oddiy markaziy, kichkina input) */}
       {showJumpModal && (
-        <div onClick={() => setShowJumpModal(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}>
-          <div data-block-nav="true"
-            onClick={(e)=>e.stopPropagation()} onTouchStart={(e)=>e.stopPropagation()} onTouchMove={(e)=>e.stopPropagation()} onTouchEnd={(e)=>e.stopPropagation()}
-            onPointerDown={(e)=>e.stopPropagation()} onPointerMove={(e)=>e.stopPropagation()} onPointerUp={(e)=>e.stopPropagation()}
-            style={{ background:'#fff', paddingBottom:'14px', borderRadius:'16px', width:'100%', maxWidth:'340px', boxShadow:'0 8px 24px rgba(0,0,0,0.2)', textAlign:'center', transition:'all 0.3s ease' }}>
+        <div
+          onClick={() => setShowJumpModal(false)}
+          style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:1600, display:'flex', alignItems:'center', justifyContent:'center', padding:'1rem' }}
+        >
+          <div
+            data-block-nav="true"
+            onClick={(e)=>e.stopPropagation()}
+            style={{ background:'#fff', paddingBottom:'14px', borderRadius:'16px', width:'100%', maxWidth:'340px', boxShadow:'0 8px 24px rgba(0,0,0,0.2)', textAlign:'center', transition:'all 0.3s ease' }}
+          >
             <h3 style={{ marginBottom:'1rem', fontSize:'18px', fontWeight:600, color:'#222' }}>
               Sahifa: {currentPage + 1} / {pages.length}
             </h3>
-            <input data-block-nav="true" type="number" placeholder="Sahifa raqamini kiriting" value={jumpInput}
+            <input
+              data-block-nav="true"
+              type="number"
+              placeholder="Sahifa raqamini kiriting"
+              value={jumpInput}
               onChange={(e)=>setJumpInput(e.target.value)}
-              onKeyDown={(e)=>{ if (e.key==='Enter'){ const p=parseInt(jumpInput,10); if(!isNaN(p)&&p>=1&&p<=pages.length){ setCurrentPage(p-1); setShowJumpModal(false); setJumpInput(''); }}}}
-              style={{ width:'200px', padding:'10px 12px', borderRadius:'8px', border:'1px solid #ddd', fontSize:'15px', background:'#f9f9f9', color:'#333', outline:'none', transition:'all 0.2s ease' }}/>
+              onKeyDown={(e)=>{
+                if (e.key==='Enter'){
+                  const p=parseInt(jumpInput,10);
+                  if(!isNaN(p)&&p>=1&&p<=pages.length){
+                    setCurrentPage(p-1); setShowJumpModal(false); setJumpInput('');
+                  }
+                }
+              }}
+              style={{ width:'200px', padding:'10px 12px', borderRadius:'8px', border:'1px solid #ddd', fontSize:'15px', background:'#f9f9f9', color:'#333', outline:'none', transition:'all 0.2s ease' }}
+            />
             <p style={{ marginTop:8, fontSize:12, color:'#999' }}>Enter tugmasini bosing</p>
           </div>
         </div>
       )}
 
-      {showSettings && (
-        <>
-          <div className="settings-overlay" data-block-nav="true" onClick={() => setShowSettings(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.35)', zIndex:1390 }} />
-          <div className="settings-panel" data-block-nav="true"
-            onClick={(e)=>e.stopPropagation()} onTouchStart={(e)=>e.stopPropagation()} onTouchMove={(e)=>e.stopPropagation()} onTouchEnd={(e)=>e.stopPropagation()}
-            onPointerDown={(e)=>e.stopPropagation()} onPointerMove={(e)=>e.stopPropagation()} onPointerUp={(e)=>e.stopPropagation()}
-            style={{ position:'fixed', bottom:0, left:0, right:0, background:'#fff', borderTopLeftRadius:24, borderTopRightRadius:24, boxShadow:'0 -8px 24px rgba(0,0,0,0.18)', padding:'20px', zIndex:1400, maxHeight:'90vh', overflowY:'auto', transition:'transform 0.3s ease' }}>
-            <SettingsPanel
-              fontSize={fontSize}
-              setFontSize={setFontSize}
-              fontFamily={fontFamily}
-              setFontFamily={setFontFamily}
-              background={background}
-              setBackground={setBackground}
-              brightness={brightness}
-              setBrightness={setBrightness}
-              flow={flow}
-              setFlow={setFlow}
-              onClose={() => setShowSettings(false)}
-              pageMargin={pageMargin}
-              setPageMargin={setPageMargin}
-              wordSpacing={wordSpacing}
-              setWordSpacing={setWordSpacing}
-              letterSpacing={letterSpacing}
-              setLetterSpacing={setLetterSpacing}
-            />
-          </div>
-        </>
-      )}
+      {/* SETTINGS (prefer: below, anchor: settings icon; katta panel) */}
+      <AnchoredModal
+        open={showSettings}
+        onClose={()=>setShowSettings(false)}
+        anchorRect={anchorSettings || fallbackAnchor(84)}
+        prefer="below"
+        maxW={840}
+        maxH={0.9}
+        background={isDark?'#111':'#fff'}
+        isDark={isDark}
+        border={border}
+        zIndex={1500}
+      >
+        <SettingsPanel
+          fontSize={fontSize}
+          setFontSize={setFontSize}
+          fontFamily={fontFamily}
+          setFontFamily={setFontFamily}
+          background={background}
+          setBackground={setBackground}
+          brightness={brightness}
+          setBrightness={setBrightness}
+          flow={flow}
+          setFlow={setFlow}
+          onClose={() => setShowSettings(false)}
+          pageMargin={pageMargin}
+          setPageMargin={setPageMargin}
+          wordSpacing={wordSpacing}
+          setWordSpacing={setWordSpacing}
+          letterSpacing={letterSpacing}
+          setLetterSpacing={setLetterSpacing}
+        />
+      </AnchoredModal>
     </div>
   );
 };
