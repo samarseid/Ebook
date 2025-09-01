@@ -4,7 +4,14 @@ import { useNavigate } from 'react-router-dom';
 import { loadFormattedPdfPages } from '../utils/pdfUtils';
 import { useTelegram, tg } from '../hooks/useTelegram';
 import SettingsPanel from '../components/SettingsPanel';
-import { IoSettingsSharp, IoChevronBack, IoSearchSharp, IoBookmark } from 'react-icons/io5';
+import {
+  IoSettingsSharp,
+  IoChevronBack,
+  IoSearchSharp,
+  IoBookmark,
+  IoStar,
+  IoStarOutline
+} from 'react-icons/io5';
 import './reader.css';
 
 const HL_KEY = (bookId) => `highlights:${bookId}`;
@@ -154,11 +161,16 @@ const Reader = () => {
   const [showSearch, setShowSearch] = useState(false);
   const [showHighlights, setShowHighlights] = useState(false);
 
+  // NEW: Star list panel
+  const [showStarList, setShowStarList] = useState(false);
+
   // Anchors
   const [anchorSettings, setAnchorSettings] = useState(null);
   const [anchorSearch, setAnchorSearch] = useState(null);
   const [anchorReadList, setAnchorReadList] = useState(null);
   const [anchorHighlights, setAnchorHighlights] = useState(null);
+  // NEW: Star list anchor
+  const [anchorStars, setAnchorStars] = useState(null);
 
   // UI
   const [fontSize, setFontSize] = useState(() => parseInt(localStorage.getItem('fontSize') || '16', 10));
@@ -189,9 +201,31 @@ const Reader = () => {
     localStorage.setItem(`read-${bookId}`, JSON.stringify(Array.from(readPages)));
   }, [readPages, bookId]);
 
+  // NEW: Starred pages
+  // ⭐ yulduzlangan sahifalar
+const [starredPages, setStarredPages] = useState(() => {
+  try {
+    const saved = localStorage.getItem(`star-${bookId}`);
+    return saved ? new Set(JSON.parse(saved)) : new Set();
+  } catch { return new Set(); }
+});
+useEffect(() => {
+  localStorage.setItem(`star-${bookId}`, JSON.stringify(Array.from(starredPages)));
+}, [starredPages, bookId]);
+
+const toggleStarPage = useCallback((idx) => {
+  setStarredPages(prev => {
+    const next = new Set(prev);
+    if (next.has(idx)) next.delete(idx);
+    else next.add(idx);
+    return next;
+  });
+}, []);
+
   const totalPages = pages.length;
   const progress = totalPages ? Math.floor((readPages.size / totalPages) * 100) : 0;
   const isCurrentRead = readPages.has(currentPage);
+  const isCurrentStarred = starredPages.has(currentPage);
 
   const markReadUpTo = (toIdx) => {
     if (toIdx == null || toIdx < 0) return;
@@ -202,6 +236,17 @@ const Reader = () => {
     });
   };
   const markReadUpToCurrent = () => markReadUpTo(currentPage);
+
+  // NEW: Toggle star for current page
+  const toggleStarCurrent = () => {
+    setStarredPages(prev => {
+      const next = new Set(prev);
+      if (next.has(currentPage)) next.delete(currentPage);
+      else next.add(currentPage);
+      return next;
+    });
+  };
+  const clearAllStars = () => { if (confirm('Barcha yulduz belgilarini o‘chirishni xohlaysizmi?')) setStarredPages(new Set()); };
 
   const allUpToCurrentRead = (() => { for (let i = 0; i <= currentPage; i++) if (!readPages.has(i)) return false; return true; })();
 
@@ -268,21 +313,21 @@ const Reader = () => {
   const verticalRootRef = useRef(null);
   const pageRefs = useRef([]);
   // === SCROLL & IO GUARD ===
-const suppressIORef = useRef(false); // IO vaqtincha bloklash (flow switch/restore payti)
-const restoredOnMountRef = useRef(false); // vertikalga bir marta qayta tiklash guard
-const prevFlowRef = useRef(null);
+  const suppressIORef = useRef(false);
+  const restoredOnMountRef = useRef(false);
+  const prevFlowRef = useRef(null);
 
-function scrollPageIntoView(idx, behavior = 'auto') {
-  const el = pageRefs.current?.[idx];
-  if (el) el.scrollIntoView({ behavior, block: 'start' });
-}
+  function scrollPageIntoView(idx, behavior = 'auto') {
+    const el = pageRefs.current?.[idx];
+    if (el) el.scrollIntoView({ behavior, block: 'start' });
+  }
 
-function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
-  if (!el) return;
-  const rect = el.getBoundingClientRect();
-  const top = window.pageYOffset + rect.top - yOffset;
-  window.scrollTo({ top: Math.max(0, top), behavior });
-}
+  function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const top = window.pageYOffset + rect.top - yOffset;
+    window.scrollTo({ top: Math.max(0, top), behavior });
+  }
 
   const [highlights, setHighlights] = useState(() => {
     try { const raw = localStorage.getItem(HL_KEY(bookId)); return raw ? JSON.parse(raw) : []; }
@@ -431,14 +476,14 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
   useEffect(() => { measure(); window.addEventListener('resize', measure); return () => window.removeEventListener('resize', measure); }, [measure]);
 
   const guardBlocked = useCallback(
-    () => showSettings || showJumpModal || showSearch || showReadList || showHighlights || hlMenu.visible,
-    [showSettings, showJumpModal, showSearch, showReadList, showHighlights, hlMenu.visible]
+    () => showSettings || showJumpModal || showSearch || showReadList || showHighlights || hlMenu.visible || showStarList,
+    [showSettings, showJumpModal, showSearch, showReadList, showHighlights, hlMenu.visible, showStarList]
   );
   const shouldBlockFromTarget = (t) => (t?.closest && t.closest('[data-block-nav="true"]')) ? true : false;
   const navBusy = drag.active || drag.committing;
 
   const begin = useCallback((x, y, targetEl) => {
-    if (flow === 'vertical') return; // swipe yo‘q
+    if (flow === 'vertical') return;
     if (guardBlocked() || navBusy) return;
     if (shouldBlockFromTarget(targetEl)) return;
     measure();
@@ -478,7 +523,6 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
   }, [drag.committing, drag.active, flow, currentPage, pages.length]);
 
   const commitOrRevert = useCallback(() => {
-    // tanlov bo‘lsa — menyu
     setTimeout(() => showAddMenuForSelection(), 0);
 
     if (flow === 'vertical' || !drag.active || drag.committing) {
@@ -546,7 +590,14 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
     }
     setResults(found); setSearching(false);
   };
-   const jumpToResult = (p) => {
+((text, q) => {
+    if (!text || !q) return [];
+    const tlc = text.toLowerCase(), qlc = q.toLowerCase();
+    const out = []; let i = 0;
+    while (true) { const idx = tlc.indexOf(qlc, i); if (idx === -1) break; out.push({ start: idx, end: idx + q.length }); i = idx + q.length; }
+    return out;
+  }, []);
+  const jumpToResult = (p) => {
     const q = query.trim();
     setCurrentPage(p);
     setShowSearch(false);
@@ -562,11 +613,7 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
       requestAnimationFrame(() => {
         const pageEl = pageRefs.current?.[p];
         if (!pageEl) return;
-
-        // Avval sahifani “start”ga olib chiqamiz
         pageEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-        // So'ng birinchi qidiruv-hiti markiga aniq skroll
         setTimeout(() => {
           const firstHit = pageEl.querySelector('mark[data-sf-index="0"]');
           if (firstHit) scrollToElement(firstHit, 80, 'smooth');
@@ -575,13 +622,11 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
     }
   };
 
-
   // Vertical: update currentPage on scroll
-   // Vertical: update currentPage on scroll
   useEffect(() => {
     if (flow !== 'vertical') return;
     const obs = new IntersectionObserver((entries) => {
-      if (suppressIORef.current) return; // ← MUHIM: tiklash payti IO signalini e’tiborsiz qoldiramiz
+      if (suppressIORef.current) return;
       let best = null;
       for (const e of entries) if (e.isIntersecting) {
         if (!best || e.intersectionRatio > best.intersectionRatio) best = e;
@@ -595,7 +640,7 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
     pageRefs.current.forEach(el => el && obs.observe(el));
     return () => obs.disconnect();
   }, [flow, pages.length]);
-  // 3a) Komponent mount bo'lgach: agar vertikal bo'lsa saqlangan sahifaga skroll qil
+
   useEffect(() => {
     if (!pages.length || flow !== 'vertical' || restoredOnMountRef.current) return;
     restoredOnMountRef.current = true;
@@ -606,7 +651,6 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
     });
   }, [pages.length, flow, currentPage]);
 
-  // 3b) Flow o'zgarganda: horizontal -> vertical o'tishda hozirgi sahifani ushlab qol
   useEffect(() => {
     if (!pages.length) return;
     if (prevFlowRef.current && prevFlowRef.current !== flow && flow === 'vertical') {
@@ -618,7 +662,6 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
     }
     prevFlowRef.current = flow;
   }, [flow, pages.length, currentPage]);
-
 
   if (loading) {
     return (
@@ -637,6 +680,7 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
   const progressBar = isDark ? '#f5f5f5' : '#1c1c1c';
   const iconColor = isDark ? '#f5f5f5' : '#111';
   const readArr = Array.from(readPages);
+  const starArr = Array.from(starredPages);
 
   const sample = (pages[currentPage] || '').slice(0, 200);
   const isCyr = /[\u0400-\u04FF]/.test(sample);
@@ -709,12 +753,12 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
 
   const renderWithHighlights = (text, pageIndex) => {
     const base = highlights.filter(h => h.page === pageIndex).map(h => ({ ...h, isFlash: h.id === flashId }));
-      const flashes = (searchFlash.page === pageIndex)
-    ? searchFlash.ranges.map((r, i) => ({
-        id: `sf-${i}`, page: pageIndex, start: r.start, end: r.end,
-        color: '#fff1a6', isFlash: true, hitIndex: i
-      }))
-    : [];
+    const flashes = (searchFlash.page === pageIndex)
+      ? searchFlash.ranges.map((r, i) => ({
+          id: `sf-${i}`, page: pageIndex, start: r.start, end: r.end,
+          color: '#fff1a6', isFlash: true, hitIndex: i
+        }))
+      : [];
 
     const pageHls = [...base, ...flashes].sort((a,b) => a.start - b.start || a.end - b.end);
     if (pageHls.length === 0) return hyphenateVisible(text);
@@ -729,8 +773,8 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
         <mark
           key={`${h.id}-${s}-${e}`}
           {...markCommonProps}
-           data-hl-id={h.isFlash ? undefined : h.id}           // ← highlight kotvasi
-    data-sf-index={h.isFlash ? h.hitIndex : undefined}  // ← qidiruvning 1-hiti kotvasi
+          data-hl-id={h.isFlash ? undefined : h.id}
+          data-sf-index={h.isFlash ? h.hitIndex : undefined}
           onMouseDown={(e)=>e.stopPropagation()}
           onTouchStart={(e)=>e.stopPropagation()}
           onClick={(e)=>!h.isFlash && showRemoveMenuFor(e, h.id)}
@@ -794,9 +838,15 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
         </button>
 
         <div data-block-nav="true" style={{ display:'flex', gap:12, alignItems:'center' }}>
+          {/* Highlights list */}
           <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorHighlights, setShowHighlights, 76); }} title="Belgilangan joylar" style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}>
             <IoBookmark size={22} color={iconColor} />
           </button>
+          {/* NEW: Starred pages list */}
+          <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorStars, setShowStarList, 76); }} title="Yulduzlangan sahifalar" style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}>
+            <IoStarOutline size={22} color={iconColor} />
+          </button>
+
           <button data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); openWithAnchor(e, setAnchorSearch, setShowSearch, 76); }} title="Qidiruv" style={{ background:'transparent', border:'none', padding:4, cursor:'pointer' }}>
             <IoSearchSharp size={22} color={iconColor} />
           </button>
@@ -825,7 +875,6 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
 
       {/* ======= CONTENT RENDER ======= */}
       {flow === 'vertical' ? (
-        // VERTICAL: to‘liq skroll, har sahifada markaziy HUD
         <div ref={verticalRootRef}>
           {pages.map((txt, idx) => (
             <div key={idx} data-page-idx={idx} ref={el => (pageRefs.current[idx] = el)} style={{ position:'relative', marginBottom:'1rem' }}>
@@ -838,9 +887,10 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
                 {renderWithHighlights(txt || '', idx)}
               </pre>
 
-              {/* Per-page HUD (CENTER, separate block — textni bosib turmaydi) */}
+              {/* Per-page HUD (CENTER) */}
               <div data-block-nav="true"
                    style={{ display:'flex', justifyContent:'center', gap:10, margin:'-8px auto 2.2rem', width:'min(74ch, 92vw)'}}>
+                    
                 <button
                   data-block-nav="true"
                   onClick={(e)=>{ e.stopPropagation(); markReadUpTo(idx); }}
@@ -857,8 +907,8 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
 
                 <button
                   data-block-nav="true"
-                  onClick={(e)=>{ 
-                    e.stopPropagation(); 
+                  onClick={(e)=>{
+                    e.stopPropagation();
                     setJumpInput(String(idx + 1));
                     setShowJumpModal(true);
                   }}
@@ -871,12 +921,13 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
                 >
                   {idx + 1} / {pages.length}
                 </button>
+                
               </div>
             </div>
           ))}
         </div>
       ) : (
-        // HORIZONTAL: withdrawal-style swipe
+        // HORIZONTAL
         <div
           ref={pageAreaRef}
           onTouchStart={onTouchStart}
@@ -944,7 +995,7 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
             <>
               <button
                 data-block-nav="true"
-                onClick={(e)=>{ 
+                onClick={(e)=>{
                   e.stopPropagation();
                   const { start, end, page } = selectionOffsetsRef.current;
                   const targetPage = (page ?? currentPage);
@@ -983,7 +1034,35 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
         </div>
       )}
 
-      {/* Global "O‘qildi" (asosan horizontal uchun) */}
+      {/* NEW: STAR TOGGLE (left of page indicator / between center and right) */}
+      <button
+        data-block-nav="true"
+        onClick={(e)=>{ e.stopPropagation(); toggleStarCurrent(); }}
+        title={isCurrentStarred ? 'Yulduzni olib tashlash' : 'Ushbu sahifani yulduzlash'}
+        aria-label="Yulduzlash"
+        style={{
+          
+          position:'fixed',
+          bottom:20,
+            // sahifa indikatoridan chaproqda
+          zIndex:600,
+          background:isDark ? '#1b1b1b' : '#f8f8f8',
+          border:`1px solid ${border}`,
+          borderRadius:12,
+          padding:'6px 10px',
+          boxShadow:'0 2px 6px rgba(0,0,0,0.12)',
+          display:'flex',
+          alignItems:'center',
+          gap:6,
+          cursor:'pointer',
+          userSelect:'none'
+        }}
+      >
+        {isCurrentStarred ? <IoStar size={18} color="#facc15" /> : <IoStarOutline size={18} color={iconColor} />}
+        <span style={{ fontSize:12, color:isDark?'#f3f4f6':'#111' }}>{isCurrentStarred ? 'Yulduzlangan' : 'Yulduzla'}</span>
+      </button>
+
+      {/* Global "O‘qildi" */}
       <button
         data-block-nav="true"
         onClick={(e) => { e.stopPropagation(); e.preventDefault(); markReadUpToCurrent(); }}
@@ -999,7 +1078,7 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
         {isCurrentRead ? 'O‘qilgan' : 'O‘qildi belgilash'}
       </button>
 
-      {/* PAGE INDICATOR (global) */}
+      {/* PAGE INDICATOR (center) */}
       <div
         data-block-nav="true"
         onClick={(e) => { e.stopPropagation(); setShowJumpModal(true); setJumpInput(String(currentPage+1)); }}
@@ -1054,7 +1133,7 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
         {!!readArr.length && (
           <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
             {readArr.sort((a,b)=>a-b).map((p)=>(
-              <button key={p} data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); setCurrentPage(p); setShowReadList(false); }}
+              <button key={p} data-block-nav="true" onClick={(e)=>{ e.stopPropagation(); setCurrentPage(p); setShowReadList(false); if (flow==='vertical'){ const el=pageRefs.current[p]; if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); } }}
                 style={{ padding:'8px 10px', borderRadius:999, border:`1px solid ${border}`, background:isDark?'#1c1c1c':'#fafafa', cursor:'pointer', fontSize:12, color:isDark?'#f3f4f6':'#111' }} title={`Sahifa ${p+1}`}>
                 {p+1}
               </button>
@@ -1083,33 +1162,96 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
           <div style={{ display:'grid', gap:8 }}>
             {preparedHls.map((h) => (
               <button key={h.id} data-block-nav="true" onClick={() => {
-  setShowHighlights(false);
-  setCurrentPage(h.page);
-
-  // Flash ko'rsatish
-  setTimeout(() => {
-    setFlashId(h.id);
-    setTimeout(() => setFlashId(null), 900);
-  }, 50);
-
-  if (flow === 'vertical') {
-    requestAnimationFrame(() => {
-      const pageEl = pageRefs.current?.[h.page];
-      if (!pageEl) return;
-      const target = pageEl.querySelector(`[data-hl-id="${h.id}"]`);
-      if (target) {
-        scrollToElement(target, 80, 'smooth');
-      } else {
-        pageEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    });
-  }
-}}
-
+                setShowHighlights(false);
+                setCurrentPage(h.page);
+                setTimeout(() => {
+                  setFlashId(h.id);
+                  setTimeout(() => setFlashId(null), 900);
+                }, 50);
+                if (flow === 'vertical') {
+                  requestAnimationFrame(() => {
+                    const pageEl = pageRefs.current?.[h.page];
+                    if (!pageEl) return;
+                    const target = pageEl.querySelector(`[data-hl-id="${h.id}"]`);
+                    if (target) {
+                      scrollToElement(target, 80, 'smooth');
+                    } else {
+                      pageEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                  });
+                }
+              }}
                 style={{ textAlign:'left', border:`1px solid ${border}`, background:cardBg, color:isDark?'#f3f4f6':'#111', borderRadius:12, padding:'10px 12px', cursor:'pointer' }}
                 title={`Sahifa ${h.page + 1}`}>
                 <div style={{ fontSize:12, color:'#9ca3af', marginBottom:4 }}>Sahifa {h.page + 1}</div>
                 <div style={{ fontSize:14, lineHeight:1.5 }}>{h.snippet}</div>
+              </button>
+            ))}
+          </div>
+        )}
+      </AnchoredModal>
+
+      {/* NEW: STAR LIST MODAL */}
+      <AnchoredModal
+        open={showStarList}
+        onClose={()=>setShowStarList(false)}
+        anchorRect={anchorStars || fallbackAnchor(76)}
+        prefer="below"
+        maxW={720}
+        maxH={0.8}
+        background={cardBg}
+        isDark={isDark}
+        border={border}
+        zIndex={1450}
+      >
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+          <div style={{ fontWeight:700, fontSize:16, color:isDark?'#f3f4f6':'#111' }}>
+            Yulduzlangan sahifalar ({starArr.length})
+          </div>
+          {!!starArr.length && (
+            <button
+              data-block-nav="true"
+              onClick={(e)=>{ e.stopPropagation(); clearAllStars(); }}
+              style={{ background:isDark?'#2a1313':'#561818ff', color:'#fff', border:'1px solid #eee', borderRadius:10, padding:'6px 10px', fontSize:12, cursor:'pointer' }}
+            >
+              Tozalash
+            </button>
+          )}
+        </div>
+
+        {starArr.length === 0 ? (
+          <div style={{ fontSize:13, color:'#6b7280' }}>Hali yulduzlangan sahifa yo‘q.</div>
+        ) : (
+          <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
+            {starArr.sort((a,b)=>a-b).map((p)=>(
+              <button
+                key={p}
+                data-block-nav="true"
+                onClick={(e)=>{
+                  e.stopPropagation();
+                  setCurrentPage(p);
+                  setShowStarList(false);
+                  if (flow==='vertical'){
+                    const el=pageRefs.current[p];
+                    if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+                  }
+                }}
+                title={`Sahifa ${p+1}`}
+                style={{
+                  padding:'8px 10px',
+                  borderRadius:999,
+                  border:`1px solid ${border}`,
+                  background:isDark?'#1c1c1c':'#fafafa',
+                  cursor:'pointer',
+                  fontSize:12,
+                  color:isDark?'#f3f4f6':'#111',
+                  display:'inline-flex',
+                  alignItems:'center',
+                  gap:6
+                }}
+              >
+                <IoStar size={14} color="#facc15" />
+                {p+1}
               </button>
             ))}
           </div>
@@ -1137,7 +1279,6 @@ function scrollToElement(el, yOffset = 80, behavior = 'smooth') {
                   const p=parseInt(jumpInput,10);
                   if(!isNaN(p)&&p>=1&&p<=pages.length){
                     setCurrentPage(p-1); setShowJumpModal(false); setJumpInput('');
-                    // vertical rejimda ham darrov fokuslangan sahifaga o‘tadi
                     if (flow === 'vertical') {
                       const el = pageRefs.current[p-1];
                       if (el) el.scrollIntoView({ behavior:'smooth', block:'start' });
