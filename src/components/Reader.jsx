@@ -670,7 +670,7 @@ const toggleStarPage = useCallback((idx) => {
       </div>
     );
   }
-
+ 
   const isDark = isColorDark(background);
   const textMuted = isDark ? '#c9c9c9' : '#666';
   const cardBg = isDark ? '#121212' : '#fff';
@@ -1341,3 +1341,4 @@ const toggleStarPage = useCallback((idx) => {
 };
 
 export default Reader;
+ 
