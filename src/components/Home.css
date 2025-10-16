@@ -31,7 +31,7 @@ html, body, #root {
   justify-content: center;
   align-items: center;
   gap: 2rem;
-  flex-wrap: wrap;
+  flex-wrap: wrap; 
 }
 
 .book-card {
@@ -42,6 +42,7 @@ html, body, #root {
   cursor: pointer;
   text-align: center;
   width: 180px;
+  
   transition: transform 0.2s ease;
 }
 

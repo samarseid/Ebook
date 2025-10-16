@@ -1,13 +1,15 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { IoSearch, IoReorderThree, IoSunny, IoMoon } from "react-icons/io5";
+import { motion, AnimatePresence } from "framer-motion";
 
 // Lokal coverlar (sening papkang bilan mos)
 import coverIkkiEshik from "../assets/ikki-eshik-orasi.jpg";
 import coverYaxshiyam from "../assets/yaxshiyam-sen-borsan.jpg";
-import coverAtomic from "../assets/81ANaVZk5LL._SL1500_.jpg"
-import cover1984 from "../assets/9780452262935_p0_v6_s600x595.jpg"
-import coverSapiens from "../assets/713jIoMO3UL.jpg"
+import coverAtomic from "../assets/81ANaVZk5LL._SL1500_.jpg";
+import cover1984 from "../assets/9780452262935_p0_v6_s600x595.jpg";
+import coverSapiens from "../assets/713jIoMO3UL.jpg";
+
 const BOOKS = [
   {
     id: "test.pdf",
@@ -18,6 +20,7 @@ const BOOKS = [
     cover: coverIkkiEshik,
     type: "pdf",
     route: "/reader",
+    audioRoute: "/audiobook"
   },
   {
     id: "test2.epub",
@@ -28,62 +31,43 @@ const BOOKS = [
     cover: coverYaxshiyam,
     type: "epub",
     route: "/reader-epub",
+    audioRoute: "/audiobook2"
   },
-  // demo kartalar (rasm yo‘q bo‘lsa shimmer fon chiqadi)
-  { id: "atomic-habits.pdf", 
-    title: "Atomic Habits", 
-    author: "James Clear", 
-    pages: 514, tag: "self-help", 
-    cover: coverAtomic, 
-    type: "pdf", 
-    route: "/reader1" 
+  {
+    id: "atomic-habits.pdf",
+    title: "Atomic Habits",
+    author: "James Clear",
+    pages: 514,
+    tag: "self-help",
+    cover: coverAtomic,
+    type: "pdf",
+    route: "/reader1",
+    audioRoute: "/audiobook3"
   },
-
-  { id: "1984.pdf", 
-    title: "1984", 
-    author: "George Orwell", 
-    pages: 688, 
-    tag: "roman", 
-    cover: cover1984, 
-    type: "pdf", 
-    route: "/reader2" 
+  {
+    id: "1984.pdf",
+    title: "1984",
+    author: "George Orwell",
+    pages: 688,
+    tag: "roman",
+    cover: cover1984,
+    type: "pdf",
+    route: "/reader2",
+    audioRoute: "/audiobook4"
   },
-  { id: "sapiens.pdf", 
-    title: "Sapiens", 
-    author: "Yuval Noah Harari", 
-    pages: 945, tag: "history", 
-    cover: coverSapiens, 
-    type: "pdf", 
-    route: "/reader3" 
-  },
-  { id: "d", 
-    title: "Deep Work", 
-    author: "Cal Newport", 
-    pages: 280, 
-    tag: "productivity", 
-    cover: "", 
-    type: "pdf", 
-    route: "/reader" 
-  },
-  { id: "e", 
-    title: "Zero to One", 
-    author: "Peter Thiel", 
-    pages: 210, 
-    tag: "startup", 
-    cover: "", 
-    type: "pdf", 
-    route: "/reader" 
-  },
-  { id: "f", 
-    title: "Clean Code", 
-    author: "Robert C. Martin", 
-    pages: 430, 
-    tag: "programming", 
-    cover: "", 
-    type: "pdf", 
-    route: "/reader" 
+  {
+    id: "sapiens.pdf",
+    title: "Sapiens",
+    author: "Yuval Noah Harari",
+    pages: 945,
+    tag: "history",
+    cover: coverSapiens,
+    type: "pdf",
+    route: "/reader3",
+    audioRoute: "/audiobook5"
   },
 ];
+
 
 export default function Home() {
   const navigate = useNavigate();
@@ -92,6 +76,9 @@ export default function Home() {
     const ls = localStorage.getItem("ui-theme");
     return ls ? ls === "dark" : true;
   });
+
+  // Tanlangan kitob (modal uchun)
+  const [selectedBook, setSelectedBook] = useState(null);
 
   // Theme vars (barchasi shu komponent ichida)
   const themeVars = useMemo(
@@ -107,7 +94,7 @@ export default function Home() {
             "--muted": "#202834",
             "--border": "rgba(255,255,255,.08)",
             "--shadow": "rgba(0,0,0,.5)",
-            "--brand": "#f9761a",         // olov
+            "--brand": "#f9761a", // olov
             "--brand-2": "#f18a3c",
             "--brand-3": "#b5530f",
             "--chip": "rgba(255,255,255,.06)",
@@ -141,10 +128,23 @@ export default function Home() {
     );
   }, [query]);
 
-  const go = (b) => {
+  // Qo'shilgan: "O'qishni boshlash" bosilganda modalni ochadi
+  const openChoice = (b) => {
     localStorage.setItem("bookId", b.id);
-    navigate(b.route);
+    setSelectedBook(b);
   };
+
+  // Modal tanlovi: 'read' yoki 'audio'
+const handleChoice = (choice) => {
+  if (!selectedBook) return;
+  if (choice === "read") {
+    navigate(selectedBook.route);
+  } else if (choice === "audio") {
+    navigate(selectedBook.audioRoute); // 🔥 Har bir kitob o‘z audio sahifasiga ketadi
+  }
+  setSelectedBook(null);
+};
+
 
   return (
     <div style={{ ...styles.page, ...themeVars }}>
@@ -197,12 +197,7 @@ export default function Home() {
 
               {/* cover yoki skeleton */}
               {b.cover ? (
-                <img
-                  src={b.cover}
-                  alt={b.title}
-                  style={styles.cover}
-                  loading="lazy"
-                />
+                <img src={b.cover} alt={b.title} style={styles.cover} loading="lazy" />
               ) : (
                 <div style={styles.skeleton} />
               )}
@@ -217,13 +212,103 @@ export default function Home() {
                 <span style={styles.chip}>{b.tag}</span>
               </div>
 
-              <button style={styles.cta} onClick={() => go(b)}>
+              {/* O'zgartirilgan: tugma modalni ochadi */}
+              <button style={styles.cta} onClick={() => openChoice(b)}>
                 O‘qishni boshlash
               </button>
             </div>
           </article>
         ))}
       </main>
+
+      {/* ================= Tanlov modal ================= */}
+      <AnimatePresence>
+        {selectedBook && (
+          <>
+            {/* Overlay */}
+            <motion.div
+              style={styles.overlay}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.55 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedBook(null)}
+            />
+
+            {/* Modal */}
+            <motion.div
+              style={styles.modal}
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+            >
+              <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+                <div style={{ width: 56, height: 74, borderRadius: 8, overflow: "hidden", flexShrink: 0, border: "1px solid var(--border)" }}>
+                  {selectedBook.cover ? (
+                    <img src={selectedBook.cover} alt={selectedBook.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  ) : (
+                    <div style={{ width: "100%", height: "100%", background: "linear-gradient(180deg, var(--muted), var(--card-2))" }} />
+                  )}
+                </div>
+                <div style={{ textAlign: "left" }}>
+                  <div style={{ fontWeight: 800 }}>{selectedBook.title}</div>
+                  <div style={{ fontSize: 13, color: "var(--text-soft)" }}>{selectedBook.author}</div>
+                </div>
+              </div>
+
+              <div style={{ fontSize: 14, marginBottom: 18, color: "var(--text-soft)" }}>
+                Qaysi formatda davom etmoqchisiz?
+              </div>
+
+              <div style={{ display: "grid", gap: 10 }}>
+                <button
+                  onClick={() => handleChoice("audio")}
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    border: "none",
+                    fontWeight: 700,
+                    background: "linear-gradient(180deg, var(--brand), var(--brand-2) 70%, var(--brand-3))",
+                    color: "#fff",
+                    cursor: "pointer",
+                    boxShadow: "0 10px 20px rgba(249,118,26,.18)",
+                  }}
+                >
+                  🎧 Audiokitobni tinglash
+                </button>
+
+                <button
+                  onClick={() => handleChoice("read")}
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    border: "1px solid var(--border)",
+                    fontWeight: 700,
+                    background: "var(--card)",
+                    color: "var(--text)",
+                    cursor: "pointer",
+                  }}
+                >
+                  📖 Kitobni o‘qish
+                </button>
+              </div>
+
+              <button
+                onClick={() => setSelectedBook(null)}
+                style={{
+                  marginTop: 14,
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--text-soft)",
+                  cursor: "pointer",
+                  fontSize: 13,
+                }}
+              >
+                Bekor qilish
+              </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -412,15 +497,41 @@ const styles = {
     boxShadow: "0 10px 20px rgba(249, 118, 26, .25)",
     cursor: "pointer",
   },
+
+  /* Modal styles */
+  overlay: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    background: "#000",
+    zIndex: 50,
+  },
+  modal: {
+     position: "fixed",
+    top: "50%",
+    left: "15%",
+    transform: "translate(-50%, -50%)",
+    zIndex: 60,
+    background: "var(--card)",
+    borderRadius: 16,
+    padding: "24px 20px",
+    width: "70%",
+    
+    maxWidth: "380px",
+    textAlign: "center",
+    boxShadow: "0 10px 40px rgba(0,0,0,.4)",
+  },
+  
 };
 
-// Sahifa ichidagi minimal reset + media rules
 const css = `
   *,
   *::before,
   *::after { box-sizing: border-box; }
   html, body, #root { height: 100%; background: var(--bg); }
-  body { margin: 0; overflow-x: hidden; color: var(--text); }
+  body { margin: 0; overflow-x: hidden; color: var(--text); font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; }
 
   /* grid breakpoints (telefon uchun 1 ustun) */
   @media (max-width: 480px) {

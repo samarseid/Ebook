@@ -1321,7 +1321,7 @@ const toggleStarPage = useCallback((idx) => {
           </div>
         </div>
       )}
-
+  
       {/* SETTINGS */}
       <AnchoredModal open={showSettings} onClose={()=>setShowSettings(false)} anchorRect={anchorSettings || fallbackAnchor(84)} prefer="below" maxW={840} maxH={0.9} background={isDark?'#111':'#fff'} isDark={isDark} border={border} zIndex={1500}>
         <SettingsPanel
@@ -1341,4 +1341,3 @@ const toggleStarPage = useCallback((idx) => {
 };
 
 export default Reader;
- 
