@@ -1,14 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom"; // 🟢 navigate uchun qo‘shildi
+import { useNavigate } from "react-router-dom";
 import "./AudioPlayer.css";
-import {
-  IoSettingsSharp,
-  IoChevronBack,
-  IoSearchSharp,
-  IoBookmark,
-  IoStar,
-  IoStarOutline,
-} from "react-icons/io5";
+import { IoChevronBack } from "react-icons/io5";
 
 const AudioPlayer = () => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -19,7 +12,7 @@ const AudioPlayer = () => {
   const [showMenu, setShowMenu] = useState(false);
 
   const audioRef = useRef(null);
-  const navigate = useNavigate(); // 🟢 endi bu joyda e’lon qilindi
+  const navigate = useNavigate();
 
   const parts = [
     {
@@ -36,13 +29,41 @@ const AudioPlayer = () => {
     },
   ];
 
+  // 🔹 Avvalgi part va vaqtni yuklash
+  useEffect(() => {
+    const savedPart = localStorage.getItem("audio_current_part");
+    const savedTime = localStorage.getItem(`audio_progress_${savedPart}`);
+    if (savedPart !== null) setCurrentPart(Number(savedPart));
+    if (savedTime !== null) setCurrentTime(Number(savedTime));
+  }, []);
+
+  // 🔹 Har bir qism uchun alohida vaqtni saqlash
   useEffect(() => {
     const audio = audioRef.current;
-    const update = () => setCurrentTime(audio.currentTime);
+
+    const update = () => {
+      setCurrentTime(audio.currentTime);
+      localStorage.setItem(
+        `audio_progress_${currentPart}`,
+        audio.currentTime.toString()
+      );
+      localStorage.setItem("audio_current_part", currentPart.toString());
+    };
+
+    const setMeta = () => setDuration(audio.duration);
+
     audio.addEventListener("timeupdate", update);
-    audio.addEventListener("loadedmetadata", () => setDuration(audio.duration));
+    audio.addEventListener("loadedmetadata", setMeta);
+
+    // 🔹 Qism o‘zgarganda avvalgi saqlangan vaqtdan davom etish
+    const savedTime = localStorage.getItem(`audio_progress_${currentPart}`);
+    if (savedTime) {
+      audio.currentTime = Number(savedTime);
+    }
+
     return () => {
       audio.removeEventListener("timeupdate", update);
+      audio.removeEventListener("loadedmetadata", setMeta);
     };
   }, [currentPart]);
 
